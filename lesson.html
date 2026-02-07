@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>同步点读引擎 - Nova 最终增强版</title>
+    <title>同步点读引擎 - Nova 最终正式版</title>
     <script src="./js/hanzi-writer.min.js"></script>
     <script>
         const urlParams = new URLSearchParams(window.location.search);
@@ -13,25 +13,6 @@
         link.href = `./css/lesson${lessonId}.css`;
         document.head.appendChild(link);
     </script>
-    <style>
-        /* 辅助调试样式 */
-        .hotspot {
-            background: rgba(255, 215, 0, 0.2); 
-            border: 1px dashed orange;
-            position: absolute;
-            z-index: 10;
-        }
-        .hotspot:hover { background: rgba(255, 215, 0, 0.4); }
-        
-        #writer-target { 
-            width: 160px; height: 160px; 
-            margin: 10px auto; 
-            background: #fff; 
-            border: 1px solid #eee;
-        }
-        .teaching-card { animation: slideIn 0.3s ease-out; }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-    </style>
 </head>
 <body class="lesson-engine">
 
@@ -53,8 +34,8 @@
             <article id="content-display">
                 <div class="placeholder">点击左侧课文或生字开启学习</div>
             </article>
-            <footer id="lesson-footer">
-                <button onclick="location.href='index.html'" class="btn-home">回目录</button>
+            <footer id="lesson-footer" style="padding: 15px; text-align: center;">
+                <button onclick="location.href='index.html'" class="ctrl-btn" style="background:#666; width: 80%;">回目录</button>
             </footer>
         </aside>
     </div>
@@ -69,7 +50,6 @@
         let lessonConfig = null;
         let writerInstance = null;
 
-        // 全局访问接口
         window.getHanziWriter = () => writerInstance;
 
         async function initEngine() {
@@ -79,6 +59,7 @@
                 lessonConfig = await response.json();
                 document.getElementById('title-display').innerText = lessonConfig.title;
 
+                // 优先使用 JSON 中的 pdfPath
                 const loadingTask = pdfjsLib.getDocument(lessonConfig.pdfPath || './book.pdf');
                 currentPdf = await loadingTask.promise;
                 
@@ -92,7 +73,8 @@
                     nav.appendChild(btn);
                 });
 
-                renderPdfPage(lessonConfig.pages[0].pdfPageNo || lessonConfig.pages[0].pageNo);
+                const firstPage = lessonConfig.pages[0].pdfPageNo || lessonConfig.pages[0].pageNo;
+                renderPdfPage(firstPage);
             } catch (err) {
                 console.error("引擎初始化失败:", err);
             }
@@ -100,8 +82,7 @@
 
         async function renderPdfPage(num) {
             const page = await currentPdf.getPage(parseInt(num));
-            const scale = 1.5;
-            const viewport = page.getViewport({ scale });
+            const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.getElementById('pdf-canvas');
             const ctx = canvas.getContext('2d');
             
@@ -118,36 +99,46 @@
             pageData.hotspots.forEach(spot => {
                 const div = document.createElement('div');
                 div.className = `hotspot hotspot-${spot.type}`;
-                // 使用百分比布局兼容移动端
-                div.style.cssText = `
-                    left:${spot.pos[0]}%; 
-                    top:${spot.pos[1]}%; 
-                    width:${spot.pos[2]}%; 
-                    height:${spot.pos[3]}%; 
-                `;
+                // 增加坐标兼容，确保使用 spot.pos 中的 [x, y, w, h]
+                div.style.cssText = `left:${spot.pos[0]}%; top:${spot.pos[1]}%; width:${spot.pos[2]}%; height:${spot.pos[3]}%; position:absolute; cursor:pointer;`;
+                
                 div.onclick = (e) => {
                     e.stopPropagation();
+                    // --- 高亮逻辑：移除旧的，添加新的 ---
+                    document.querySelectorAll('.hotspot').forEach(el => el.classList.remove('active-hotspot'));
+                    div.classList.add('active-hotspot');
+                    
                     handleActivation(spot);
                 };
                 overlay.appendChild(div);
             });
         }
 
-        // --- 真人语音播放引擎 ---
-        function playSpeech(text) {
-            window.speechSynthesis.cancel();
-            // 优先尝试有道 API（标准普通话女声）
-            const audio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&type=2`);
+        // --- Nova 的坐标拾取器（保留，方便你继续录入数据） ---
+        document.getElementById('hotspot-overlay').addEventListener('click', function(e) {
+            const rect = this.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width * 100).toFixed(2);
+            const y = ((e.clientY - rect.top) / rect.height * 100).toFixed(2);
+            console.log(`%c 拾取成功！pos: [${x}, ${y}, 8, 4]`, "background: #2e7d32; color: #fff; padding: 2px 5px;");
+            
+            const dot = document.createElement('div');
+            dot.style.cssText = `position:absolute; left:${x}%; top:${y}%; width:6px; height:6px; background:var(--primary-color); border-radius:50%; pointer-events:none;`;
+            this.appendChild(dot);
+            setTimeout(() => dot.remove(), 800);
+        });
+
+        // --- 核心交互逻辑：语音 + 渲染 ---
+        function handleActivation(spot) {
+            // 1. 标准普通话语音逻辑（真人发音优先）
+            const audioText = spot.char || spot.search || spot.text;
+            const audio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2`);
             audio.play().catch(() => {
-                // 降级方案
-                const speech = new SpeechSynthesisUtterance(text);
+                // 离线降级
+                window.speechSynthesis.cancel();
+                const speech = new SpeechSynthesisUtterance(audioText);
                 speech.lang = 'zh-CN';
                 window.speechSynthesis.speak(speech);
             });
-        }
-
-        function handleActivation(spot) {
-            playSpeech(spot.char || spot.search);
 
             const display = document.getElementById('content-display');
             
@@ -156,31 +147,30 @@
                     <div class="teaching-card expert-mode">
                         <section class="card-section">
                             <h3>💡 名师赏析</h3>
-                            <p>${spot.expand.note || '暂无内容'}</p>
+                            <p>${spot.expand.note || '请细细品读文中意境。'}</p>
                         </section>
-                        <section class="card-section">
-                            <h3>🧪 科学百科</h3>
-                            <p>${spot.expand.science || '暂无内容'}</p>
-                        </section>
-                        <section class="card-section">
-                            <h3>📜 文章深度解析</h3>
-                            <p>${spot.expand.article || '暂无内容'}</p>
+                        <section class="card-section" style="border-top-color: #0277bd;">
+                            <h3 style="color: #0277bd;">🧪 科学百科</h3>
+                            <p>${spot.expand.science || '暂无相关百科数据。'}</p>
                         </section>
                     </div>`;
             } else if (spot.type === 'word') {
                 display.innerHTML = `
                     <div class="teaching-card word-mode">
                         <div id="writer-target"></div>
-                        <div class="word-meta">
-                            <h2>${spot.char} <small>[${spot.pinyin}]</small></h2>
-                            <p class="error-text"><strong>易错：</strong>${spot.expand.error || '无'}</p>
+                        <h2>${spot.char}</h2>
+                        <div class="highlight-box">
+                            <p><span class="label-red">【拼音】</span>${spot.pinyin || ''}</p>
+                            <p><span class="label-red">【易错】</span>${spot.expand.error || '结构要匀称'}</p>
                         </div>
-                        <p><strong>字理：</strong>${spot.expand.zili}</p>
-                        <p><strong>组词：</strong>${spot.expand.group.join('、')}</p>
-                        <button class="play-btn" onclick="window.getHanziWriter().animateCharacter()">▶ 演示笔画</button>
+                        <div class="card-section" style="text-align:left;">
+                            <p><strong>字理：</strong>${spot.expand.zili || '见字如面。'}</p>
+                            <p><strong>组词：</strong>${(spot.expand.group || []).join('、')}</p>
+                        </div>
+                        <button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">演示笔顺</button>
                     </div>`;
 
-                // 笔画实例化
+                // 重新初始化汉字笔画，修正 API 方法
                 writerInstance = HanziWriter.create('writer-target', spot.char, {
                     width: 160,
                     height: 160,
@@ -191,14 +181,6 @@
                 writerInstance.animateCharacter();
             }
         }
-
-        // 坐标拾取器逻辑保持（用于 Nova 离线调试）
-        document.getElementById('hotspot-overlay').addEventListener('click', function(e) {
-            const rect = this.getBoundingClientRect();
-            const x = ((e.clientX - rect.left) / rect.width * 100).toFixed(2);
-            const y = ((e.clientY - rect.top) / rect.height * 100).toFixed(2);
-            console.log(`%c 拾取成功！pos: [${x}, ${y}, 10, 5]`, "color: #bada55; font-weight: bold;");
-        });
 
         initEngine();
     </script>
