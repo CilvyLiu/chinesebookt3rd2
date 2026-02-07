@@ -43,7 +43,6 @@
     <script src="./js/pdf.js"></script>
     
     <script>
-        // 映射 pdfjsLib，兼容新旧版本命名
         const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
         pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.js';
 
@@ -51,6 +50,15 @@
         let lessonConfig = null;
         let writerInstance = null;
         let renderTask = null;
+        
+        // --- 增量变量 ---
+        let isFullReading = false; 
+        let currentPageNum = 0;
+
+        // --- 增量功能：好听的语音接口 (晓晓级别拟人音) ---
+        function getAudioUrl(text) {
+            return `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(text)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
+        }
 
         window.getHanziWriter = () => writerInstance;
 
@@ -62,9 +70,7 @@
 
                 const loadingTask = pdfjsLib.getDocument({
                     url: lessonConfig.pdfPath || './book.pdf',
-                    // 如果没有 wasm，强制关闭 eval 支持有助于提升在某些环境下的兼容性
                     isEvalSupported: false,
-                    // 依然建议保留公共字体库链接，防止文字显示为方块
                     cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.14.305/cmaps/',
                     cMapPacked: true
                 });
@@ -72,6 +78,15 @@
                 currentPdf = await loadingTask.promise;
                 
                 const nav = document.getElementById('page-switcher');
+                
+                // --- 增量功能：添加全文朗读按钮 ---
+                const fullReadBtn = document.createElement('button');
+                fullReadBtn.className = "page-btn";
+                fullReadBtn.style.background = "#f9a825"; // 名师金
+                fullReadBtn.innerText = "🎵 全文朗读";
+                fullReadBtn.onclick = () => startFullReading(currentPageNum);
+                nav.appendChild(fullReadBtn);
+
                 lessonConfig.pages.forEach(p => {
                     const btn = document.createElement('button');
                     btn.className = "page-btn";
@@ -81,12 +96,12 @@
                 });
 
                 renderPdfPage(lessonConfig.pages[0].pdfPageNo);
-            } catch (err) {
-                console.error("引擎初始化失败:", err);
-            }
+            } catch (err) { console.error("引擎初始化失败:", err); }
         }
 
-       async function renderPdfPage(num) {
+        async function renderPdfPage(num) {
+            currentPageNum = num;
+            isFullReading = false; // 翻页停止朗读
             if (renderTask) renderTask.cancel();
 
             const page = await currentPdf.getPage(parseInt(num));
@@ -110,70 +125,87 @@
                 const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
                 const span = document.createElement('span');
                 
-                // 自动计算文字在 PDF 上的比例位置
                 const left = (tx[4] / viewport.width * 100).toFixed(2);
                 const top = ((tx[5] - item.height) / viewport.height * 100).toFixed(2);
                 const width = (item.width / viewport.width * 100).toFixed(2);
                 const height = (item.height / viewport.height * 100).toFixed(2);
 
-                // 核心：判断这个字是不是 JSON 里定义的“生字”或“诗句”
                 const isDefined = pageData.hotspots.some(s => 
                     item.str.includes(s.search) || s.search?.includes(item.str.trim())
                 );
 
-                // 应用你的 CSS 类名
                 span.className = isDefined ? 'hotspot hotspot-word' : 'hotspot';
+                // 增量：给热区打上内容标签方便朗读定位
+                if (isDefined) span.setAttribute('data-text', item.str.trim());
+                
                 span.style.cssText = `left:${left}%; top:${top}%; width:${width}%; height:${height}%;`;
 
                 span.onclick = (e) => {
-                    // 清除之前的高亮
-                    document.querySelectorAll('.active-hotspot').forEach(el => el.classList.remove('active-hotspot'));
-                    // 给当前点击的加高亮（变成你 CSS 里的金黄色）
-                    span.classList.add('active-hotspot');
-                    
+                    isFullReading = false; // 手动点读时停止全文模式
+                    highlightElement(span);
                     matchAndActivate(item.str.trim(), pageData);
                 };
                 overlay.appendChild(span);
             });
         }
 
+        // --- 增量功能：排队同步朗读 ---
+        async function startFullReading(num) {
+            if (isFullReading) { isFullReading = false; return; }
+            isFullReading = true;
+            
+            const pageData = lessonConfig.pages.find(p => p.pdfPageNo === parseInt(num));
+            const poems = pageData.hotspots.filter(h => h.type === 'poem');
+
+            for (let spot of poems) {
+                if (!isFullReading) break;
+                // 在 PDF 上找到对应行并高亮
+                const elements = document.querySelectorAll(`[data-text*="${spot.search.substring(0,2)}"]`);
+                if (elements.length > 0) highlightElement(elements[0]);
+                
+                await new Promise((resolve) => {
+                    if (window.currentAudio) window.currentAudio.pause();
+                    window.currentAudio = new Audio(getAudioUrl(spot.content || spot.search));
+                    window.currentAudio.onended = resolve;
+                    window.currentAudio.onerror = resolve;
+                    window.currentAudio.play();
+                    updateUI(spot);
+                });
+            }
+            isFullReading = false;
+        }
+
+        function highlightElement(el) {
+            document.querySelectorAll('.active-hotspot').forEach(item => item.classList.remove('active-hotspot'));
+            if (el) el.classList.add('active-hotspot');
+        }
+
         function matchAndActivate(text, pageData) {
             if (!text || !pageData) return;
-            
-            // 匹配逻辑优化：JSON 里的 search 字段
             let spot = pageData.hotspots.find(s => text.includes(s.search) || s.search.includes(text));
-
             if (spot) {
                 handleActivation(spot);
             } else {
-                // 默认保底点读
                 handleActivation({ 
-                    type: 'word', 
-                    char: text.charAt(0), 
-                    pinyin: '朗读', 
+                    type: 'word', char: text.charAt(0), pinyin: '点读', 
                     expand: { zili: "自动识别文本", group: [text] } 
                 });
             }
         }
 
         function handleActivation(spot) {
-            // 1. 停止当前正在播放的所有语音（防止多点连按时声音打架）
             if (window.currentAudio) {
                 window.currentAudio.pause();
                 window.currentAudio.currentTime = 0;
             }
-
-            // 2. 获取朗读文本：如果是诗句读全文，如果是生字读单字
             const audioText = spot.search || spot.char;
-            
-            // 3. 使用标准普通话女声接口 (le=zh 参数确保中文语境)
-            const audioUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2&le=zh`;
-            const audio = new Audio(audioUrl);
-            window.currentAudio = audio; // 记录当前语音对象
-            audio.play();
+            window.currentAudio = new Audio(getAudioUrl(audioText));
+            window.currentAudio.play();
+            updateUI(spot);
+        }
 
+        function updateUI(spot) {
             const display = document.getElementById('content-display');
-            
             if (spot.type === 'poem') {
                 display.innerHTML = `
                     <div class="teaching-card expert-mode">
@@ -202,7 +234,6 @@
                     </div>`;
 
                 if (spot.char && spot.char.length === 1) {
-                    // 修正：切换文字时先清空容器，防止叠图
                     document.getElementById('writer-target').innerHTML = '';
                     writerInstance = HanziWriter.create('writer-target', spot.char, {
                         width: 140, height: 140, padding: 5, strokeColor: '#d32f2f'
