@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>同步点读引擎 - Nova 最终正式版</title>
+    <title>同步点读引擎 - Nova 拾取增强版</title>
     <script src="./js/hanzi-writer.min.js"></script>
     <script>
         const urlParams = new URLSearchParams(window.location.search);
@@ -32,9 +32,9 @@
                 <nav id="page-switcher"></nav>
             </header>
             <article id="content-display">
-                <div class="placeholder">点击左侧课文或生字开启学习</div>
+                <div class="placeholder">点击左侧文字开启学习</div>
             </article>
-            <footer id="lesson-footer" style="padding: 15px; text-align: center;">
+            <footer id="lesson-footer">
                 <button onclick="location.href='index.html'" class="ctrl-btn" style="background:#666; width: 80%;">回目录</button>
             </footer>
         </aside>
@@ -44,8 +44,6 @@
         import * as pdfjsLib from './js/pdf.mjs';
         pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.mjs';
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const lessonId = urlParams.get('id') || '1'; 
         let currentPdf = null;
         let lessonConfig = null;
         let writerInstance = null;
@@ -55,7 +53,6 @@
         async function initEngine() {
             try {
                 const response = await fetch(`./data/lesson${lessonId}.json`);
-                if (!response.ok) throw new Error('未找到该课件数据');
                 lessonConfig = await response.json();
                 document.getElementById('title-display').innerText = lessonConfig.title;
 
@@ -66,14 +63,12 @@
                 lessonConfig.pages.forEach(p => {
                     const btn = document.createElement('button');
                     btn.className = "page-btn";
-                    const pNum = p.pdfPageNo || p.pageNo; 
-                    btn.innerText = `P${pNum}`;
-                    btn.onclick = () => renderPdfPage(pNum);
+                    btn.innerText = `P${p.pdfPageNo}`;
+                    btn.onclick = () => renderPdfPage(p.pdfPageNo);
                     nav.appendChild(btn);
                 });
 
-                const firstPage = lessonConfig.pages[0].pdfPageNo || lessonConfig.pages[0].pageNo;
-                renderPdfPage(firstPage);
+                renderPdfPage(lessonConfig.pages[0].pdfPageNo);
             } catch (err) {
                 console.error("引擎初始化失败:", err);
             }
@@ -92,92 +87,84 @@
             const overlay = document.getElementById('hotspot-overlay');
             overlay.innerHTML = '';
             
-            // --- 核心升级：自动拾取文字层 ---
+            // 关键：从页面提取文字内容
             const textContent = await page.getTextContent();
+            const pageData = lessonConfig.pages.find(p => p.pdfPageNo === parseInt(num));
+
             textContent.items.forEach(item => {
-                // 计算文字在 Canvas 上的实际位置
                 const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
                 const span = document.createElement('span');
                 
-                // 将 PDF 坐标转换为百分比坐标
+                // 坐标换算
                 const left = (tx[4] / viewport.width * 100).toFixed(2);
                 const top = ((tx[5] - item.height) / viewport.height * 100).toFixed(2);
                 const width = (item.width / viewport.width * 100).toFixed(2);
                 const height = (item.height / viewport.height * 100).toFixed(2);
 
                 span.className = 'text-hitarea';
-                span.style.cssText = `
-                    position: absolute;
-                    left: ${left}%;
-                    top: ${top}%;
-                    width: ${width}%;
-                    height: ${height}%;
-                    cursor: pointer;
-                    background: rgba(255, 255, 0, 0.05); /* 淡淡的高亮预览 */
-                `;
+                span.style.cssText = `position:absolute; left:${left}%; top:${top}%; width:${width}%; height:${height}%; cursor:pointer;`;
 
                 span.onclick = (e) => {
                     e.stopPropagation();
-                    // 自动构建 spot 对象
-                    const autoSpot = {
-                        type: 'word',
-                        char: item.str.trim().charAt(0), // 提取识别到的字符
-                        text: item.str.trim(),
-                        expand: {
-                            note: "这是从 PDF 中自动拾取的文字。",
-                            zili: "系统自动识别文本位置，无需手动录入坐标。",
-                            group: [item.str.trim()]
-                        }
-                    };
-                    handleActivation(autoSpot);
+                    matchAndActivate(item.str.trim(), pageData);
                 };
                 overlay.appendChild(span);
             });
+        }
 
-            // --- 保留原有的 JSON 热区逻辑（用于覆盖特殊赏析内容） ---
-            const pageData = lessonConfig.pages.find(p => (p.pdfPageNo || p.pageNo) === parseInt(num));
-            if (pageData && pageData.hotspots) {
-                pageData.hotspots.forEach(spot => {
-                    const div = document.createElement('div');
-                    div.className = `hotspot hotspot-${spot.type}`;
-                    div.style.cssText = `left:${spot.pos[0]}%; top:${spot.pos[1]}%; width:${spot.pos[2]}%; height:${spot.pos[3]}%; position:absolute; z-index:20;`;
-                    div.onclick = (e) => {
-                        e.stopPropagation();
-                        handleActivation(spot);
-                    };
-                    overlay.appendChild(div);
-                });
+        // 逻辑控制：匹配文字并触发
+        function matchAndActivate(text, pageData) {
+            if (!text) return;
+
+            // 1. 优先在当前页匹配 search 字段（古诗句等）
+            let spot = pageData.hotspots.find(s => text.includes(s.search) || s.search.includes(text));
+
+            // 2. 如果没匹配到，查找是否是生字 (char)
+            if (!spot) {
+                spot = pageData.hotspots.find(s => s.type === 'word' && s.char === text);
+            }
+
+            if (spot) {
+                handleActivation(spot);
+            } else {
+                // 如果 JSON 没配这个词，仅做基础语音点读
+                handleActivation({ type: 'word', char: text.charAt(0), text: text, expand: { zili: "自动识别文本" } });
             }
         }
 
-        // --- 核心交互逻辑 ---
         function handleActivation(spot) {
-            const audioText = spot.char || spot.text;
-            if(!audioText) return;
-
+            // 语音逻辑
+            const audioText = spot.char || spot.search;
             const audio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2`);
-            audio.play().catch(() => {
-                window.speechSynthesis.cancel();
-                const speech = new SpeechSynthesisUtterance(audioText);
-                speech.lang = 'zh-CN';
-                window.speechSynthesis.speak(speech);
-            });
+            audio.play();
 
             const display = document.getElementById('content-display');
             
-            if (spot.type === 'word' || !spot.type) {
+            if (spot.type === 'poem') {
+                display.innerHTML = `
+                    <div class="teaching-card expert-mode">
+                        <section class="card-section">
+                            <h3>💡 名师赏析</h3>
+                            <p>${spot.expand.note}</p>
+                        </section>
+                        <section class="card-section" style="border-top: 1px dashed #ccc; margin-top:10px; padding-top:10px;">
+                            <h3>🧪 科学百科</h3>
+                            <p>${spot.expand.science || spot.expand.article || ''}</p>
+                        </section>
+                    </div>`;
+            } else if (spot.type === 'word') {
                 display.innerHTML = `
                     <div class="teaching-card word-mode">
                         <div id="writer-target"></div>
-                        <h2>${spot.char || spot.text}</h2>
+                        <h2>${spot.char} [${spot.pinyin || ''}]</h2>
                         <div class="highlight-box">
-                            <p><span class="label-red">【拼音】</span>${spot.pinyin || '拼音加载中'}</p>
+                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
+                            <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
                         </div>
-                        <div class="card-section" style="text-align:left;">
-                            <p><strong>内容：</strong>${spot.text || spot.char}</p>
-                            <p><strong>字理/笔记：</strong>${(spot.expand && spot.expand.zili) ? spot.expand.zili : '自动识别文本'}</p>
+                        <div class="card-section">
+                            <p><strong>字理：</strong>${spot.expand.zili}</p>
                         </div>
-                        ${spot.char ? `<button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">演示笔顺</button>` : ''}
+                        <button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">演示笔顺</button>
                     </div>`;
 
                 if (spot.char && spot.char.length === 1) {
@@ -186,16 +173,6 @@
                     });
                     writerInstance.animateCharacter();
                 }
-            } else {
-                // 处理 poem 或 text 类型
-                display.innerHTML = `
-                    <div class="teaching-card expert-mode">
-                        <section class="card-section">
-                            <h3>💡 内容详情</h3>
-                            <p>${spot.text || '正文内容'}</p>
-                            <p>${(spot.expand && spot.expand.note) ? spot.expand.note : ''}</p>
-                        </section>
-                    </div>`;
             }
         }
 
