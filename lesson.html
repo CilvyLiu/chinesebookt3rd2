@@ -3,12 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>同步点读引擎 - 通用模板</title>
+    <title>同步点读引擎 - Nova 专属版</title>
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"></script>
+    <script src="./js/hanzi-writer.min.js"></script>
     
-    <link rel="stylesheet" href="lesson1.css">
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const lessonId = urlParams.get('id') || '1';
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = `./css/lesson${lessonId}.css`;
+        document.head.appendChild(link);
+    </script>
 </head>
 <body class="lesson-engine">
 
@@ -24,12 +30,12 @@
 
         <aside id="teaching-panel">
             <header id="lesson-header">
-                <h1 id="title-display">正在加载...</h1>
+                <h1 id="title-display">正在加载课件...</h1>
                 <nav id="page-switcher"></nav>
             </header>
 
             <article id="content-display">
-                <div class="placeholder">请点击左侧课文开启学习</div>
+                <div class="placeholder">点击左侧课文或生字开启学习</div>
             </article>
 
             <footer id="lesson-footer">
@@ -38,9 +44,11 @@
         </aside>
     </div>
 
-    <script>
-        // --- 全栈专家驱动逻辑 ---
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    <script type="module">
+        import * as pdfjsLib from './js/pdf.mjs';
+
+        // 1. 配置本地 Worker 路径
+        pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.mjs';
 
         const urlParams = new URLSearchParams(window.location.search);
         const lessonId = urlParams.get('id') || '1'; 
@@ -48,99 +56,125 @@
         let lessonConfig = null;
         let writerInstance = null;
 
-        // 1. 加载配置并启动
+        // 将 writerInstance 挂载到 window，方便 HTML 中的 onclick 调用
+        window.getHanziWriter = () => writerInstance;
+
+        // 2. 初始化引擎
         async function initEngine() {
             try {
+                // 加载 JSON 配置
                 const response = await fetch(`./data/lesson${lessonId}.json`);
+                if (!response.ok) throw new Error('未找到该课件数据');
                 lessonConfig = await response.json();
+                
                 document.getElementById('title-display').innerText = lessonConfig.title;
 
-                currentPdf = await pdfjsLib.getDocument('book.pdf').promise;
+                // 加载本地 PDF (确保 book.pdf 在根目录)
+                const loadingTask = pdfjsLib.getDocument('./book.pdf');
+                currentPdf = await loadingTask.promise;
                 
                 // 构建页码导航
                 const nav = document.getElementById('page-switcher');
                 lessonConfig.pages.forEach(p => {
                     const btn = document.createElement('button');
                     btn.className = "page-btn";
-                    btn.innerText = p.pageNo;
+                    btn.innerText = `P${p.pageNo}`;
                     btn.onclick = () => renderPdfPage(p.pageNo);
                     nav.appendChild(btn);
                 });
 
-                // 默认渲染第一页
+                // 默认渲染配置中的第一页
                 renderPdfPage(lessonConfig.pages[0].pageNo);
+                
+                console.log(`Nova Engine: 第 ${lessonId} 课加载成功`);
             } catch (err) {
-                console.error("Engine Error:", err);
+                console.error("引擎初始化失败:", err);
+                document.getElementById('title-display').innerText = "加载失败，请检查数据";
             }
         }
 
-        // 2. 渲染 PDF 页面
+        // 3. 渲染 PDF 页面
         async function renderPdfPage(num) {
             const page = await currentPdf.getPage(num);
+            // 设定缩放比例，1.5 比较适合电脑端展示
             const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.getElementById('pdf-canvas');
             const ctx = canvas.getContext('2d');
             
             canvas.height = viewport.height;
             canvas.width = viewport.width;
+            
             await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
-            // 绘制热区
+            // 清理并绘制热区
             const overlay = document.getElementById('hotspot-overlay');
             overlay.innerHTML = '';
-            const pageData = lessonConfig.pages.find(p => p.pageNo === num);
             
+            // 找到对应页码的配置数据
+            const pageData = lessonConfig.pages.find(p => p.pageNo === num);
+            if (!pageData) return;
+
             pageData.hotspots.forEach(spot => {
                 const div = document.createElement('div');
                 div.className = `hotspot hotspot-${spot.type}`;
-                div.style.cssText = `left:${spot.pos[0]}%; top:${spot.pos[1]}%; width:${spot.pos[2]}%; height:${spot.pos[3]}%; position:absolute;`;
+                // 使用百分比定位，保证 PDF 缩放时位置依然准确
+                div.style.cssText = `left:${spot.pos[0]}%; top:${spot.pos[1]}%; width:${spot.pos[2]}%; height:${spot.pos[3]}%; position:absolute; cursor:pointer;`;
                 div.onclick = () => handleActivation(spot);
                 overlay.appendChild(div);
             });
         }
 
-        // 3. 处理热区点击（板块传送）
+        // 4. 热区交互逻辑
         function handleActivation(spot) {
-            // TTS 朗读
+            // TTS 语音反馈
             window.speechSynthesis.cancel();
             const speech = new SpeechSynthesisUtterance(spot.text || spot.char);
             speech.lang = 'zh-CN';
-            speech.rate = 0.85;
+            speech.rate = 0.8;
             window.speechSynthesis.speak(speech);
 
             const display = document.getElementById('content-display');
             
-            if (spot.type === 'poem') {
+            if (spot.type === 'poem' || spot.type === 'text') {
                 display.innerHTML = `
-                    <div class="teaching-card poem-type">
-                        <section class="expert-note"><h3>名师导学</h3><p>${spot.expand.expert_note || spot.expand.note}</p></section>
-                        <section class="science-box"><h3>科学知识</h3><p>${spot.expand.science}</p></section>
-                        <section class="quiz-box"><h3>思考题</h3><p>${spot.expand.qa ? spot.expand.qa.q : spot.expand.quiz}</p></section>
+                    <div class="teaching-card expert-mode">
+                        <section class="card-section">
+                            <h3><span class="icon">💡</span> 名师导学</h3>
+                            <p>${spot.expand.expert_note || "此处暂无导学内容"}</p>
+                        </section>
+                        <section class="card-section">
+                            <h3><span class="icon">🧪</span> 科学百科</h3>
+                            <p>${spot.expand.science || "正在补充知识点..."}</p>
+                        </section>
                     </div>`;
             } else if (spot.type === 'word') {
                 display.innerHTML = `
-                    <div class="teaching-card word-type">
+                    <div class="teaching-card word-mode">
                         <div id="writer-target"></div>
-                        <div class="word-detail">
-                            <h2>${spot.char} <span>${spot.pinyin}</span></h2>
-                            <p class="zili"><strong>字理：</strong>${spot.analysis ? spot.analysis.zili : spot.expand.zili}</p>
-                            <p class="group"><strong>组词：</strong>${(spot.analysis ? spot.analysis.group : spot.expand.group).join('、')}</p>
+                        <div class="word-info">
+                            <h2>${spot.char} <small>${spot.pinyin}</small></h2>
+                            <p><strong>字理说明：</strong>${spot.expand.zili || "暂无"}</p>
+                            <p><strong>精选组词：</strong>${(spot.expand.group || []).join('、')}</p>
                         </div>
-                        <div class="word-actions">
-                            <button onclick="writerInstance.animate()">演示笔顺</button>
-                            <button onclick="writerInstance.quiz()">听写测试</button>
+                        <div class="word-btns">
+                            <button class="ctrl-btn" onclick="window.getHanziWriter().animate()">看演示</button>
+                            <button class="ctrl-btn" onclick="window.getHanziWriter().quiz()">我来写</button>
                         </div>
                     </div>`;
                 
-                // 笔顺初始化：自动绘制
+                // 笔顺动画初始化
                 writerInstance = HanziWriter.create('writer-target', spot.char, {
-                    width: 150, height: 150, padding: 5,
-                    strokeAnimationSpeed: 1, strokeColor: '#d32f2f'
+                    width: 160,
+                    height: 160,
+                    padding: 5,
+                    strokeColor: '#d32f2f',
+                    showOutline: true
                 });
                 writerInstance.animate();
             }
         }
 
+        // 启动！
         initEngine();
     </script>
 </body>
