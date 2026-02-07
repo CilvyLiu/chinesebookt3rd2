@@ -59,7 +59,6 @@
                 lessonConfig = await response.json();
                 document.getElementById('title-display').innerText = lessonConfig.title;
 
-                // 优先使用 JSON 中的 pdfPath
                 const loadingTask = pdfjsLib.getDocument(lessonConfig.pdfPath || './book.pdf');
                 currentPdf = await loadingTask.promise;
                 
@@ -93,47 +92,71 @@
             const overlay = document.getElementById('hotspot-overlay');
             overlay.innerHTML = '';
             
-            const pageData = lessonConfig.pages.find(p => (p.pdfPageNo || p.pageNo) === parseInt(num));
-            if (!pageData) return;
-
-            pageData.hotspots.forEach(spot => {
-                const div = document.createElement('div');
-                div.className = `hotspot hotspot-${spot.type}`;
-                // 增加坐标兼容，确保使用 spot.pos 中的 [x, y, w, h]
-                div.style.cssText = `left:${spot.pos[0]}%; top:${spot.pos[1]}%; width:${spot.pos[2]}%; height:${spot.pos[3]}%; position:absolute; cursor:pointer;`;
+            // --- 核心升级：自动拾取文字层 ---
+            const textContent = await page.getTextContent();
+            textContent.items.forEach(item => {
+                // 计算文字在 Canvas 上的实际位置
+                const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+                const span = document.createElement('span');
                 
-                div.onclick = (e) => {
+                // 将 PDF 坐标转换为百分比坐标
+                const left = (tx[4] / viewport.width * 100).toFixed(2);
+                const top = ((tx[5] - item.height) / viewport.height * 100).toFixed(2);
+                const width = (item.width / viewport.width * 100).toFixed(2);
+                const height = (item.height / viewport.height * 100).toFixed(2);
+
+                span.className = 'text-hitarea';
+                span.style.cssText = `
+                    position: absolute;
+                    left: ${left}%;
+                    top: ${top}%;
+                    width: ${width}%;
+                    height: ${height}%;
+                    cursor: pointer;
+                    background: rgba(255, 255, 0, 0.05); /* 淡淡的高亮预览 */
+                `;
+
+                span.onclick = (e) => {
                     e.stopPropagation();
-                    // --- 高亮逻辑：移除旧的，添加新的 ---
-                    document.querySelectorAll('.hotspot').forEach(el => el.classList.remove('active-hotspot'));
-                    div.classList.add('active-hotspot');
-                    
-                    handleActivation(spot);
+                    // 自动构建 spot 对象
+                    const autoSpot = {
+                        type: 'word',
+                        char: item.str.trim().charAt(0), // 提取识别到的字符
+                        text: item.str.trim(),
+                        expand: {
+                            note: "这是从 PDF 中自动拾取的文字。",
+                            zili: "系统自动识别文本位置，无需手动录入坐标。",
+                            group: [item.str.trim()]
+                        }
+                    };
+                    handleActivation(autoSpot);
                 };
-                overlay.appendChild(div);
+                overlay.appendChild(span);
             });
+
+            // --- 保留原有的 JSON 热区逻辑（用于覆盖特殊赏析内容） ---
+            const pageData = lessonConfig.pages.find(p => (p.pdfPageNo || p.pageNo) === parseInt(num));
+            if (pageData && pageData.hotspots) {
+                pageData.hotspots.forEach(spot => {
+                    const div = document.createElement('div');
+                    div.className = `hotspot hotspot-${spot.type}`;
+                    div.style.cssText = `left:${spot.pos[0]}%; top:${spot.pos[1]}%; width:${spot.pos[2]}%; height:${spot.pos[3]}%; position:absolute; z-index:20;`;
+                    div.onclick = (e) => {
+                        e.stopPropagation();
+                        handleActivation(spot);
+                    };
+                    overlay.appendChild(div);
+                });
+            }
         }
 
-        // --- Nova 的坐标拾取器（保留，方便你继续录入数据） ---
-        document.getElementById('hotspot-overlay').addEventListener('click', function(e) {
-            const rect = this.getBoundingClientRect();
-            const x = ((e.clientX - rect.left) / rect.width * 100).toFixed(2);
-            const y = ((e.clientY - rect.top) / rect.height * 100).toFixed(2);
-            console.log(`%c 拾取成功！pos: [${x}, ${y}, 8, 4]`, "background: #2e7d32; color: #fff; padding: 2px 5px;");
-            
-            const dot = document.createElement('div');
-            dot.style.cssText = `position:absolute; left:${x}%; top:${y}%; width:6px; height:6px; background:var(--primary-color); border-radius:50%; pointer-events:none;`;
-            this.appendChild(dot);
-            setTimeout(() => dot.remove(), 800);
-        });
-
-        // --- 核心交互逻辑：语音 + 渲染 ---
+        // --- 核心交互逻辑 ---
         function handleActivation(spot) {
-            // 1. 标准普通话语音逻辑（真人发音优先）
-            const audioText = spot.char || spot.search || spot.text;
+            const audioText = spot.char || spot.text;
+            if(!audioText) return;
+
             const audio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2`);
             audio.play().catch(() => {
-                // 离线降级
                 window.speechSynthesis.cancel();
                 const speech = new SpeechSynthesisUtterance(audioText);
                 speech.lang = 'zh-CN';
@@ -142,43 +165,37 @@
 
             const display = document.getElementById('content-display');
             
-            if (spot.type === 'poem' || spot.type === 'text') {
-                display.innerHTML = `
-                    <div class="teaching-card expert-mode">
-                        <section class="card-section">
-                            <h3>💡 名师赏析</h3>
-                            <p>${spot.expand.note || '请细细品读文中意境。'}</p>
-                        </section>
-                        <section class="card-section" style="border-top-color: #0277bd;">
-                            <h3 style="color: #0277bd;">🧪 科学百科</h3>
-                            <p>${spot.expand.science || '暂无相关百科数据。'}</p>
-                        </section>
-                    </div>`;
-            } else if (spot.type === 'word') {
+            if (spot.type === 'word' || !spot.type) {
                 display.innerHTML = `
                     <div class="teaching-card word-mode">
                         <div id="writer-target"></div>
-                        <h2>${spot.char}</h2>
+                        <h2>${spot.char || spot.text}</h2>
                         <div class="highlight-box">
-                            <p><span class="label-red">【拼音】</span>${spot.pinyin || ''}</p>
-                            <p><span class="label-red">【易错】</span>${spot.expand.error || '结构要匀称'}</p>
+                            <p><span class="label-red">【拼音】</span>${spot.pinyin || '拼音加载中'}</p>
                         </div>
                         <div class="card-section" style="text-align:left;">
-                            <p><strong>字理：</strong>${spot.expand.zili || '见字如面。'}</p>
-                            <p><strong>组词：</strong>${(spot.expand.group || []).join('、')}</p>
+                            <p><strong>内容：</strong>${spot.text || spot.char}</p>
+                            <p><strong>字理/笔记：</strong>${(spot.expand && spot.expand.zili) ? spot.expand.zili : '自动识别文本'}</p>
                         </div>
-                        <button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">演示笔顺</button>
+                        ${spot.char ? `<button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">演示笔顺</button>` : ''}
                     </div>`;
 
-                // 重新初始化汉字笔画，修正 API 方法
-                writerInstance = HanziWriter.create('writer-target', spot.char, {
-                    width: 160,
-                    height: 160,
-                    padding: 5,
-                    strokeColor: '#d32f2f',
-                    delayBetweenStrokes: 60
-                });
-                writerInstance.animateCharacter();
+                if (spot.char && spot.char.length === 1) {
+                    writerInstance = HanziWriter.create('writer-target', spot.char, {
+                        width: 140, height: 140, padding: 5, strokeColor: '#d32f2f'
+                    });
+                    writerInstance.animateCharacter();
+                }
+            } else {
+                // 处理 poem 或 text 类型
+                display.innerHTML = `
+                    <div class="teaching-card expert-mode">
+                        <section class="card-section">
+                            <h3>💡 内容详情</h3>
+                            <p>${spot.text || '正文内容'}</p>
+                            <p>${(spot.expand && spot.expand.note) ? spot.expand.note : ''}</p>
+                        </section>
+                    </div>`;
             }
         }
 
