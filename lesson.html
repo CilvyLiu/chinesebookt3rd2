@@ -86,8 +86,8 @@
             }
         }
 
-        async function renderPdfPage(num) {
-            if (renderTask) { renderTask.cancel(); }
+       async function renderPdfPage(num) {
+            if (renderTask) renderTask.cancel();
 
             const page = await currentPdf.getPage(parseInt(num));
             const viewport = page.getViewport({ scale: 1.5 });
@@ -98,13 +98,7 @@
             canvas.width = viewport.width;
 
             renderTask = page.render({ canvasContext: ctx, viewport: viewport });
-            
-            try {
-                await renderTask.promise;
-                renderTask = null;
-            } catch (err) {
-                if (err.name === 'RenderingCancelledException') return;
-            }
+            await renderTask.promise;
 
             const overlay = document.getElementById('hotspot-overlay');
             overlay.innerHTML = '';
@@ -116,16 +110,27 @@
                 const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
                 const span = document.createElement('span');
                 
+                // 自动计算文字在 PDF 上的比例位置
                 const left = (tx[4] / viewport.width * 100).toFixed(2);
                 const top = ((tx[5] - item.height) / viewport.height * 100).toFixed(2);
                 const width = (item.width / viewport.width * 100).toFixed(2);
                 const height = (item.height / viewport.height * 100).toFixed(2);
 
-                span.className = 'text-hitarea';
-                span.style.cssText = `position:absolute; left:${left}%; top:${top}%; width:${width}%; height:${height}%; cursor:pointer;`;
+                // 核心：判断这个字是不是 JSON 里定义的“生字”或“诗句”
+                const isDefined = pageData.hotspots.some(s => 
+                    item.str.includes(s.search) || s.search?.includes(item.str.trim())
+                );
+
+                // 应用你的 CSS 类名
+                span.className = isDefined ? 'hotspot hotspot-word' : 'hotspot';
+                span.style.cssText = `left:${left}%; top:${top}%; width:${width}%; height:${height}%;`;
 
                 span.onclick = (e) => {
-                    e.stopPropagation();
+                    // 清除之前的高亮
+                    document.querySelectorAll('.active-hotspot').forEach(el => el.classList.remove('active-hotspot'));
+                    // 给当前点击的加高亮（变成你 CSS 里的金黄色）
+                    span.classList.add('active-hotspot');
+                    
                     matchAndActivate(item.str.trim(), pageData);
                 };
                 overlay.appendChild(span);
