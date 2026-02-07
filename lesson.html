@@ -152,8 +152,19 @@
         }
 
         function handleActivation(spot) {
+            // 1. 停止当前正在播放的所有语音（防止多点连按时声音打架）
+            if (window.currentAudio) {
+                window.currentAudio.pause();
+                window.currentAudio.currentTime = 0;
+            }
+
+            // 2. 获取朗读文本：如果是诗句读全文，如果是生字读单字
             const audioText = spot.search || spot.char;
-            const audio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2`);
+            
+            // 3. 使用标准普通话女声接口 (le=zh 参数确保中文语境)
+            const audioUrl = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2&le=zh`;
+            const audio = new Audio(audioUrl);
+            window.currentAudio = audio; // 记录当前语音对象
             audio.play();
 
             const display = document.getElementById('content-display');
@@ -167,7 +178,7 @@
                         </section>
                         <section class="card-section" style="border-top: 1px dashed #ccc; margin-top:10px; padding-top:10px;">
                             <h3>🧪 科学百科</h3>
-                            <p>${spot.expand.science || '观察生活中的春天吧！'}</p>
+                            <p>${spot.expand.science || spot.expand.article || '暂无百科资料'}</p>
                         </section>
                     </div>`;
             } else if (spot.type === 'word') {
@@ -176,8 +187,8 @@
                         <div id="writer-target"></div>
                         <h2>${spot.char} [${spot.pinyin || ''}]</h2>
                         <div class="highlight-box">
+                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
                             <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
-                            <p><strong>【易错】</strong>${spot.expand.error || '注意结构'}</p>
                         </div>
                         <div class="card-section">
                             <p><strong>字理：</strong>${spot.expand.zili}</p>
@@ -186,7 +197,8 @@
                     </div>`;
 
                 if (spot.char && spot.char.length === 1) {
-                    if(writerInstance) { document.getElementById('writer-target').innerHTML = ''; }
+                    // 修正：切换文字时先清空容器，防止叠图
+                    document.getElementById('writer-target').innerHTML = '';
                     writerInstance = HanziWriter.create('writer-target', spot.char, {
                         width: 140, height: 140, padding: 5, strokeColor: '#d32f2f'
                     });
