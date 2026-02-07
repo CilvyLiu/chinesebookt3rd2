@@ -1,0 +1,147 @@
+/* --- Nova 专属全栈基础变量 --- */
+:root {
+    --primary-color: #2e7d32;   /* 森林绿 */
+    --accent-color: #d32f2f;    /* 书法红 */
+    --bg-color: #f5f5f5;
+    --panel-width: 350px;       /* 侧边栏宽度 */
+    --card-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+/* --- 全局布局优化 --- */
+body, html {
+    margin: 0; padding: 0;
+    height: 100%; width: 100%;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    background-color: var(--bg-color);
+    overflow: hidden; /* 防止整页滚动，交给子容器 */
+}
+
+#app {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* --- 左侧：PDF 阅读区 --- */
+#reader-container {
+    flex: 1;
+    background: #525659; /* 模拟 PDF 阅读器背景 */
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+    position: relative;
+    -webkit-overflow-scrolling: touch; /* 优化 iOS 滚动卡顿 */
+}
+
+#pdf-render-wrapper {
+    position: relative;
+    margin: 20px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.3);
+}
+
+/* 热区通用样式 */
+.hotspot {
+    position: absolute;
+    border: 2px dashed transparent;
+    transition: all 0.2s;
+    border-radius: 4px;
+    -webkit-tap-highlight-color: transparent; /* 消除移动端点击蓝框 */
+}
+
+.hotspot:hover {
+    background: rgba(46, 125, 50, 0.1);
+    border-color: var(--primary-color);
+}
+
+/* --- 右侧：教学面板 --- */
+#teaching-panel {
+    width: var(--panel-width);
+    background: white;
+    border-left: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+}
+
+#lesson-header {
+    padding: 20px;
+    background: var(--primary-color);
+    color: white;
+}
+
+#title-display { margin: 0; font-size: 1.25rem; }
+
+#page-switcher {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+}
+
+.page-btn {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    padding: 5px 12px;
+    border-radius: 15px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+/* --- 交互内容卡片 --- */
+#content-display {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.teaching-card {
+    animation: slideIn 0.3s ease-out;
+}
+
+.card-section {
+    background: #fff;
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: var(--card-shadow);
+    border-left: 5px solid var(--primary-color);
+}
+
+/* 生字交互特化 */
+.word-mode { text-align: center; }
+#writer-target { 
+    background: #fff; 
+    border: 1px solid #eee; 
+    margin: 0 auto 15px;
+    border-radius: 8px;
+}
+
+.ctrl-btn {
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    margin: 5px;
+    font-weight: bold;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* --- 移动端 & 平板适配 (关键) --- */
+@media (max-width: 900px) {
+    #app { flex-direction: column; }
+    #teaching-panel {
+        width: 100%;
+        height: 40vh; /* 手机上占屏幕下方 40% */
+        border-left: none;
+        border-top: 2px solid var(--primary-color);
+    }
+    #reader-container { height: 60vh; }
+}
+
+/* --- 动画效果 --- */
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
