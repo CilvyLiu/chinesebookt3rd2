@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>义务教育教科书·语文三年级下册 - 点读学习站</title>
+    <style>
+        :root {
+            --primary-green: #2e7d32;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --text-main: #333;
+            --accent-orange: #ff9800;
+        }
+        body { font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.6; }
+        .header { text-align: center; padding: 40px 0; background: linear-gradient(135deg, #4caf50, #2e7d32); color: white; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .header h1 { margin: 0; font-size: 24px; letter-spacing: 2px; }
+        .header p { margin: 10px 0 0; opacity: 0.9; }
+
+        .container { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+        
+        .unit-card { background: var(--card-bg); border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-left: 5px solid var(--primary-green); }
+        .unit-card h2 { color: var(--primary-green); font-size: 18px; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top: 0; }
+        
+        .lesson-list { list-style: none; padding: 0; margin: 0; }
+        .lesson-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 5px; border-bottom: 1px solid #f9f9f9; transition: all 0.2s; cursor: pointer; text-decoration: none; color: inherit; }
+        .lesson-item:hover { background-color: #f0f7f0; transform: translateX(5px); }
+        .lesson-name { font-weight: 500; display: flex; align-items: center; }
+        .lesson-name span { background: var(--accent-orange); color: white; font-size: 12px; padding: 2px 6px; border-radius: 4px; margin-right: 8px; }
+        .page-tag { font-family: 'Courier New', monospace; color: #888; font-size: 14px; }
+
+        .footer-nav { grid-column: 1 / -1; display: flex; justify-content: space-around; background: #fff; padding: 15px; border-radius: 12px; margin-top: 20px; }
+        .footer-nav a { text-decoration: none; color: var(--primary-green); font-weight: bold; }
+
+        @media (max-width: 600px) { .header { padding: 20px 0; } .container { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>义务教育教科书·语文三年级下册 [cite: 9, 11]</h1>
+    <p>点读 · 赏析 · 字理 · 互动学习 [2026版]</p>
+</div>
+
+<div class="container">
+    <div class="unit-card">
+        <h2>第一单元：可爱的生灵 [cite: 39]</h2>
+        <div class="lesson-list">
+            <a href="lesson1.html" class="lesson-item">
+                <div class="lesson-name"><span>1</span> 古诗三首 [cite: 42]</div>
+                <div class="page-tag">P2 [cite: 43]</div>
+            </a>
+            <a href="lesson2.html" class="lesson-item">
+                <div class="lesson-name"><span>2</span> 燕子 [cite: 55]</div>
+                <div class="page-tag">P4 [cite: 58]</div>
+            </a>
+            <a href="lesson3.html" class="lesson-item">
+                <div class="lesson-name"><span>3</span> 荷花 [cite: 56]</div>
+                <div class="page-tag">P6 [cite: 59]</div>
+            </a>
+            <a href="lesson4.html" class="lesson-item">
+                <div class="lesson-name"><span>4*</span> 昆虫备忘录 [cite: 57]</div>
+                <div class="page-tag">P8 [cite: 62]</div>
+            </a>
+        </div>
+    </div>
+
+    <div class="unit-card">
+        <h2>第二单元：寓言故事 [cite: 76]</h2>
+        <div class="lesson-list">
+            <a href="#" class="lesson-item">
+                <div class="lesson-name"><span>5</span> 守株待兔 [cite: 80]</div>
+                <div class="page-tag">P16 [cite: 81]</div>
+            </a>
+            <a href="#" class="lesson-item">
+                <div class="lesson-name"><span>6</span> 陶罐和铁罐 [cite: 84]</div>
+                <div class="page-tag">P18 [cite: 85]</div>
+            </a>
+            <a href="#" class="lesson-item">
+                <div class="lesson-name"><span>7</span> 鹿角和鹿腿 [cite: 87]</div>
+                <div class="page-tag">P21 [cite: 88]</div>
+            </a>
+            <a href="#" class="lesson-item">
+                <div class="lesson-name"><span>8*</span> 池子与河流 [cite: 89]</div>
+                <div class="page-tag">P23 [cite: 90]</div>
+            </a>
+        </div>
+    </div>
+
+    <div class="footer-nav">
+        <a href="shizibiao.html">识字表 [cite: 148]</a>
+        <a href="xiezibiao.html">写字表 [cite: 152]</a>
+        <a href="ciyubiao.html">词语表 [cite: 156]</a>
+    </div>
+</div>
+
+<script>
+    // 全栈提示：后续可在此处通过脚本动态加载已完成的课程状态
+    console.log("三年级下册点读系统初始化完成...");
+</script>
+
+</body>
+</html>
