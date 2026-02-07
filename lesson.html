@@ -40,16 +40,17 @@
         </aside>
     </div>
 
-    <script type="module">
-        import * as pdfjsLib from './js/pdf.mjs';
-        
-        // 1. 设置 Worker 路径
-        pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.mjs';
+    <script src="./js/pdf.js"></script>
+    
+    <script>
+        // 映射 pdfjsLib，兼容新旧版本命名
+        const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.js';
 
         let currentPdf = null;
         let lessonConfig = null;
         let writerInstance = null;
-        let renderTask = null; // 新增：用于管理渲染任务，防止重叠
+        let renderTask = null;
 
         window.getHanziWriter = () => writerInstance;
 
@@ -59,13 +60,13 @@
                 lessonConfig = await response.json();
                 document.getElementById('title-display').innerText = lessonConfig.title;
 
-                // 【核心修复】：注入 wasmUrl 解决 OpenJPEG 解码报错
                 const loadingTask = pdfjsLib.getDocument({
                     url: lessonConfig.pdfPath || './book.pdf',
-                    wasmUrl: './js/openjpeg.wasm',        // 指向你上传的 wasm 文件
-                    cMapUrl: './js/cmaps/',               // 字体映射
-                    cMapPacked: true,
-                    standardFontDataUrl: './js/standard_fonts/'
+                    // 如果没有 wasm，强制关闭 eval 支持有助于提升在某些环境下的兼容性
+                    isEvalSupported: false,
+                    // 依然建议保留公共字体库链接，防止文字显示为方块
+                    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.14.305/cmaps/',
+                    cMapPacked: true
                 });
 
                 currentPdf = await loadingTask.promise;
@@ -86,10 +87,7 @@
         }
 
         async function renderPdfPage(num) {
-            // 如果有正在进行的渲染，先取消它
-            if (renderTask) {
-                renderTask.cancel();
-            }
+            if (renderTask) { renderTask.cancel(); }
 
             const page = await currentPdf.getPage(parseInt(num));
             const viewport = page.getViewport({ scale: 1.5 });
@@ -99,7 +97,6 @@
             canvas.height = viewport.height;
             canvas.width = viewport.width;
 
-            // 执行渲染并记录任务
             renderTask = page.render({ canvasContext: ctx, viewport: viewport });
             
             try {
@@ -107,7 +104,6 @@
                 renderTask = null;
             } catch (err) {
                 if (err.name === 'RenderingCancelledException') return;
-                console.error("渲染页面出错:", err);
             }
 
             const overlay = document.getElementById('hotspot-overlay');
@@ -137,26 +133,26 @@
         }
 
         function matchAndActivate(text, pageData) {
-            if (!text) return;
+            if (!text || !pageData) return;
+            
+            // 匹配逻辑优化：JSON 里的 search 字段
             let spot = pageData.hotspots.find(s => text.includes(s.search) || s.search.includes(text));
-            if (!spot) {
-                spot = pageData.hotspots.find(s => s.type === 'word' && s.char === text);
-            }
 
             if (spot) {
                 handleActivation(spot);
             } else {
+                // 默认保底点读
                 handleActivation({ 
                     type: 'word', 
                     char: text.charAt(0), 
-                    pinyin: '识别中', 
+                    pinyin: '朗读', 
                     expand: { zili: "自动识别文本", group: [text] } 
                 });
             }
         }
 
         function handleActivation(spot) {
-            const audioText = spot.char || spot.search;
+            const audioText = spot.search || spot.char;
             const audio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2`);
             audio.play();
 
@@ -171,7 +167,7 @@
                         </section>
                         <section class="card-section" style="border-top: 1px dashed #ccc; margin-top:10px; padding-top:10px;">
                             <h3>🧪 科学百科</h3>
-                            <p>${spot.expand.science || spot.expand.article || '暂无百科资料'}</p>
+                            <p>${spot.expand.science || '观察生活中的春天吧！'}</p>
                         </section>
                     </div>`;
             } else if (spot.type === 'word') {
@@ -180,8 +176,8 @@
                         <div id="writer-target"></div>
                         <h2>${spot.char} [${spot.pinyin || ''}]</h2>
                         <div class="highlight-box">
-                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
                             <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
+                            <p><strong>【易错】</strong>${spot.expand.error || '注意结构'}</p>
                         </div>
                         <div class="card-section">
                             <p><strong>字理：</strong>${spot.expand.zili}</p>
@@ -190,6 +186,7 @@
                     </div>`;
 
                 if (spot.char && spot.char.length === 1) {
+                    if(writerInstance) { document.getElementById('writer-target').innerHTML = ''; }
                     writerInstance = HanziWriter.create('writer-target', spot.char, {
                         width: 140, height: 140, padding: 5, strokeColor: '#d32f2f'
                     });
