@@ -3,20 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>同步点读引擎 - Nova 高清版</title>
+    <title>同步点读引擎 - Nova 拾取增强版</title>
     <script src="./js/hanzi-writer.min.js"></script>
-    <style>
-        /* 核心布局：确保高清 Canvas 不会撑破容器 */
-        #pdf-render-wrapper { position: relative; width: 100%; overflow: hidden; }
-        #pdf-canvas { width: 100% !important; height: auto !important; display: block; }
-        .text-hitarea { background: rgba(255, 255, 0, 0); transition: background 0.2s; }
-        .text-hitarea:active { background: rgba(255, 255, 0, 0.3); }
-    </style>
     <script>
         const urlParams = new URLSearchParams(window.location.search);
         const lessonId = urlParams.get('id') || '1';
         const link = document.createElement('link');
-        link.rel = 'stylesheet'; link.href = `./css/lesson${lessonId}.css`;
+        link.rel = 'stylesheet';
+        link.href = `./css/lesson${lessonId}.css`;
         document.head.appendChild(link);
     </script>
 </head>
@@ -25,7 +19,7 @@
     <div id="app">
         <section id="reader-container">
             <div id="pdf-scroll-view">
-                <div id="pdf-render-wrapper">
+                <div id="pdf-render-wrapper" style="position: relative;">
                     <canvas id="pdf-canvas"></canvas>
                     <div id="hotspot-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></div>
                 </div>
@@ -34,11 +28,11 @@
 
         <aside id="teaching-panel">
             <header id="lesson-header">
-                <h1 id="title-display">载入中...</h1>
+                <h1 id="title-display">正在加载课件...</h1>
                 <nav id="page-switcher"></nav>
             </header>
             <article id="content-display">
-                <div class="placeholder">点击文中词句开启赏析</div>
+                <div class="placeholder">点击左侧文字开启学习</div>
             </article>
             <footer id="lesson-footer">
                 <button onclick="location.href='index.html'" class="ctrl-btn" style="background:#666; width: 80%;">回目录</button>
@@ -48,16 +42,15 @@
 
     <script type="module">
         import * as pdfjsLib from './js/pdf.mjs';
-
-        // 路径变量
-        const LIB_PATH = './js/';
         
-        // 解决你的 WASM 报错：注入所有零件路径
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `${LIB_PATH}pdf.worker.mjs`;
+        // 1. 设置 Worker 路径
+        pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.mjs';
 
         let currentPdf = null;
         let lessonConfig = null;
         let writerInstance = null;
+        let renderTask = null; // 新增：用于管理渲染任务，防止重叠
+
         window.getHanziWriter = () => writerInstance;
 
         async function initEngine() {
@@ -66,12 +59,13 @@
                 lessonConfig = await response.json();
                 document.getElementById('title-display').innerText = lessonConfig.title;
 
-                // 核心配置：支持高级图像解码
+                // 【核心修复】：注入 wasmUrl 解决 OpenJPEG 解码报错
                 const loadingTask = pdfjsLib.getDocument({
                     url: lessonConfig.pdfPath || './book.pdf',
-                    cMapUrl: `${LIB_PATH}cmaps/`,
+                    wasmUrl: './js/openjpeg.wasm',        // 指向你上传的 wasm 文件
+                    cMapUrl: './js/cmaps/',               // 字体映射
                     cMapPacked: true,
-                    standardFontDataUrl: `${LIB_PATH}standard_fonts/`,
+                    standardFontDataUrl: './js/standard_fonts/'
                 });
 
                 currentPdf = await loadingTask.promise;
@@ -92,40 +86,42 @@
         }
 
         async function renderPdfPage(num) {
+            // 如果有正在进行的渲染，先取消它
+            if (renderTask) {
+                renderTask.cancel();
+            }
+
             const page = await currentPdf.getPage(parseInt(num));
-            
-            // --- 高清渲染逻辑 ---
-            const scale = 1.5; // 基础缩放
-            const dpr = window.devicePixelRatio || 1; // 获取屏幕像素比
-            const viewport = page.getViewport({ scale: scale });
-            
+            const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.getElementById('pdf-canvas');
             const ctx = canvas.getContext('2d');
+            
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
 
-            // 倍增画布像素，但在 CSS 中维持原样，从而实现高清
-            canvas.height = viewport.height * dpr;
-            canvas.width = viewport.width * dpr;
-            ctx.scale(dpr, dpr); 
+            // 执行渲染并记录任务
+            renderTask = page.render({ canvasContext: ctx, viewport: viewport });
+            
+            try {
+                await renderTask.promise;
+                renderTask = null;
+            } catch (err) {
+                if (err.name === 'RenderingCancelledException') return;
+                console.error("渲染页面出错:", err);
+            }
 
-            const renderContext = {
-                canvasContext: ctx,
-                viewport: viewport
-            };
-            await page.render(renderContext).promise;
-
-            // --- 文字提取与点击逻辑 ---
             const overlay = document.getElementById('hotspot-overlay');
             overlay.innerHTML = '';
+            
             const textContent = await page.getTextContent();
             const pageData = lessonConfig.pages.find(p => p.pdfPageNo === parseInt(num));
 
             textContent.items.forEach(item => {
-                // 坐标换算：基于 viewport 原始尺寸
                 const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
                 const span = document.createElement('span');
                 
                 const left = (tx[4] / viewport.width * 100).toFixed(2);
-                const top = ((viewport.height - tx[5]) / viewport.height * 100).toFixed(2);
+                const top = ((tx[5] - item.height) / viewport.height * 100).toFixed(2);
                 const width = (item.width / viewport.width * 100).toFixed(2);
                 const height = (item.height / viewport.height * 100).toFixed(2);
 
@@ -141,41 +137,64 @@
         }
 
         function matchAndActivate(text, pageData) {
-            if (!text || !pageData) return;
-            // 匹配逻辑：优先搜索古诗，再搜索单字
-            let spot = pageData.hotspots.find(s => text.includes(s.search) || (s.search && s.search.includes(text)));
-            if (!spot) spot = pageData.hotspots.find(s => s.type === 'word' && s.char === text);
+            if (!text) return;
+            let spot = pageData.hotspots.find(s => text.includes(s.search) || s.search.includes(text));
+            if (!spot) {
+                spot = pageData.hotspots.find(s => s.type === 'word' && s.char === text);
+            }
 
             if (spot) {
                 handleActivation(spot);
+            } else {
+                handleActivation({ 
+                    type: 'word', 
+                    char: text.charAt(0), 
+                    pinyin: '识别中', 
+                    expand: { zili: "自动识别文本", group: [text] } 
+                });
             }
         }
 
         function handleActivation(spot) {
             const audioText = spot.char || spot.search;
-            new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2`).play();
+            const audio = new Audio(`https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(audioText)}&type=2`);
+            audio.play();
 
             const display = document.getElementById('content-display');
+            
             if (spot.type === 'poem') {
                 display.innerHTML = `
                     <div class="teaching-card expert-mode">
-                        <h3>💡 名师赏析</h3><p>${spot.expand.note}</p>
-                        <div class="divider"></div>
-                        <h3>🧪 科学百科</h3><p>${spot.expand.science || spot.expand.article || ''}</p>
+                        <section class="card-section">
+                            <h3>💡 名师赏析</h3>
+                            <p>${spot.expand.note}</p>
+                        </section>
+                        <section class="card-section" style="border-top: 1px dashed #ccc; margin-top:10px; padding-top:10px;">
+                            <h3>🧪 科学百科</h3>
+                            <p>${spot.expand.science || spot.expand.article || '暂无百科资料'}</p>
+                        </section>
                     </div>`;
-            } else {
+            } else if (spot.type === 'word') {
                 display.innerHTML = `
                     <div class="teaching-card word-mode">
                         <div id="writer-target"></div>
-                        <h2>${spot.char} [${spot.pinyin}]</h2>
-                        <p><strong>【组词】</strong>${spot.expand.group.join('、')}</p>
-                        <p><strong>字理：</strong>${spot.expand.zili}</p>
-                        <button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">笔顺演示</button>
+                        <h2>${spot.char} [${spot.pinyin || ''}]</h2>
+                        <div class="highlight-box">
+                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
+                            <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
+                        </div>
+                        <div class="card-section">
+                            <p><strong>字理：</strong>${spot.expand.zili}</p>
+                        </div>
+                        <button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">演示笔顺</button>
                     </div>`;
-                writerInstance = HanziWriter.create('writer-target', spot.char, {
-                    width: 120, height: 120, padding: 5, strokeColor: '#d32f2f'
-                });
-                writerInstance.animateCharacter();
+
+                if (spot.char && spot.char.length === 1) {
+                    writerInstance = HanziWriter.create('writer-target', spot.char, {
+                        width: 140, height: 140, padding: 5, strokeColor: '#d32f2f'
+                    });
+                    writerInstance.animateCharacter();
+                }
             }
         }
 
