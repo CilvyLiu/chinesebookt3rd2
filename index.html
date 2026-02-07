@@ -16,17 +16,17 @@
         .unit-header::before { content: "🔖"; margin-right: 10px; }
 
         /* 课程列表 */
-        .lesson-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-        .lesson-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: var(--secondary); border-radius: 8px; text-decoration: none; color: var(--text); transition: 0.2s; }
-        .lesson-item:hover { background: #e1ede6; transform: translateY(-2px); }
+        .lesson-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+        .lesson-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: var(--secondary); border-radius: 8px; text-decoration: none; color: var(--text); transition: 0.2s; border: 1px solid transparent; }
+        .lesson-item:hover { background: #e1ede6; transform: translateY(-2px); border-color: var(--primary); }
         .lesson-title { display: flex; align-items: center; gap: 8px; }
-        .lesson-no { font-weight: bold; color: var(--primary); width: 25px; }
+        .lesson-no { font-weight: bold; color: var(--primary); width: 25px; text-align: center; }
         .page-num { color: #888; font-size: 0.85rem; font-family: 'Courier New', monospace; }
         
-        /* 特殊板块样式（口语、习作、园地） */
-        .special-item { grid-column: 1 / -1; background: #fff8e1; border: 1px dashed #ffd54f; font-size: 0.95rem; }
-        .footer-tools { grid-column: 1 / -1; display: flex; justify-content: center; gap: 20px; margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; }
-        .footer-tools a { color: var(--primary); text-decoration: none; font-weight: bold; border: 1px solid var(--primary); padding: 5px 15px; border-radius: 20px; }
+        /* 特殊板块样式 */
+        .special-item { grid-column: 1 / -1; background: #fff8e1; border: 1px dashed #ffd54f; font-size: 0.95rem; text-align: center; cursor: default; padding: 10px; border-radius: 8px; }
+        .footer-tools { text-align: center; margin-top: 40px; padding-bottom: 40px; }
+        .footer-tools a { display: inline-block; color: var(--primary); text-decoration: none; font-weight: bold; border: 1px solid var(--primary); padding: 8px 20px; border-radius: 20px; margin: 5px; }
     </style>
 </head>
 <body>
@@ -40,55 +40,84 @@
     <section class="unit-card">
         <div class="unit-header">第一单元：可爱的生灵</div>
         <div class="lesson-grid">
-            <a href="lesson1.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">1</span> 古诗三首</div><span class="page-num">P2</span></a>
-            <a href="lesson2.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">2</span> 燕子</div><span class="page-num">P4</span></a>
-            <a href="lesson3.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">3</span> 荷花</div><span class="page-num">P6</span></a>
-            <a href="lesson4.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">4*</span> 昆虫备忘录</div><span class="page-num">P8</span></a>
-            <a href="#" class="lesson-item special-item">◎ 口语交际：春游去哪儿玩 / 习作：我的植物朋友 / 语文园地</a>
+            <a href="lesson.html?id=1" class="lesson-item"><div class="lesson-title"><span class="lesson-no">1</span> 古诗三首</div><span class="page-num">P2</span></a>
+            <a href="lesson.html?id=2" class="lesson-item"><div class="lesson-title"><span class="lesson-no">2</span> 燕子</div><span class="page-num">P4</span></a>
+            <a href="lesson.html?id=3" class="lesson-item"><div class="lesson-title"><span class="lesson-no">3</span> 荷花</div><span class="page-num">P6</span></a>
+            <a href="lesson.html?id=4" class="lesson-item"><div class="lesson-title"><span class="lesson-no">4*</span> 昆虫备忘录</div><span class="page-num">P8</span></a>
+            <div class="special-item">◎ 口语交际：春游去哪儿玩 / 习作：我的植物朋友 / 语文园地</div>
         </div>
     </section>
 
     <section class="unit-card">
         <div class="unit-header">第二单元：寓言故事</div>
         <div class="lesson-grid">
-            <a href="lesson5.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">5</span> 守株待兔</div><span class="page-num">P16</span></a>
-            <a href="lesson6.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">6</span> 陶罐和铁罐</div><span class="page-num">P18</span></a>
-            <a href="lesson7.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">7</span> 鹿角和鹿腿</div><span class="page-num">P21</span></a>
-            <a href="lesson8.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">8*</span> 池子与河流</div><span class="page-num">P23</span></a>
-            <a href="#" class="lesson-item special-item">◎ 习作：看图画，写一写 / 语文园地 / 快乐读书吧</a>
+            <a href="lesson.html?id=5" class="lesson-item"><div class="lesson-title"><span class="lesson-no">5</span> 守株待兔</div><span class="page-num">P16</span></a>
+            <a href="lesson.html?id=6" class="lesson-item"><div class="lesson-title"><span class="lesson-no">6</span> 陶罐和铁罐</div><span class="page-num">P18</span></a>
+            <a href="lesson.html?id=7" class="lesson-item"><div class="lesson-title"><span class="lesson-no">7</span> 鹿角和鹿腿</div><span class="page-num">P21</span></a>
+            <a href="lesson.html?id=8" class="lesson-item"><div class="lesson-title"><span class="lesson-no">8*</span> 池子与河流</div><span class="page-num">P23</span></a>
+            <div class="special-item">◎ 习作：看图画，写一写 / 语文园地 / 快乐读书吧</div>
         </div>
     </section>
 
     <section class="unit-card">
         <div class="unit-header">第三单元：中华传统文化</div>
         <div class="lesson-grid">
-            <a href="lesson9.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">9</span> 古诗三首</div><span class="page-num">P34</span></a>
-            <a href="lesson10.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">10</span> 纸的发明</div><span class="page-num">P37</span></a>
-            <a href="lesson11.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">11</span> 赵州桥</div><span class="page-num">P40</span></a>
-            <a href="lesson12.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">12*</span> 一幅名扬中外的画</div><span class="page-num">P42</span></a>
+            <a href="lesson.html?id=9" class="lesson-item"><div class="lesson-title"><span class="lesson-no">9</span> 古诗三首</div><span class="page-num">P34</span></a>
+            <a href="lesson.html?id=10" class="lesson-item"><div class="lesson-title"><span class="lesson-no">10</span> 纸的发明</div><span class="page-num">P37</span></a>
+            <a href="lesson.html?id=11" class="lesson-item"><div class="lesson-title"><span class="lesson-no">11</span> 赵州桥</div><span class="page-num">P40</span></a>
+            <a href="lesson.html?id=12" class="lesson-item"><div class="lesson-title"><span class="lesson-no">12*</span> 一幅名扬中外的画</div><span class="page-num">P42</span></a>
+            <div class="special-item">◎ 综合性学习：中华传统节日 / 语文园地</div>
         </div>
     </section>
 
     <section class="unit-card">
         <div class="unit-header">第四单元：观察与发现</div>
         <div class="lesson-grid">
-            <a href="lesson13.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">13</span> 花钟</div><span class="page-num">P48</span></a>
-            <a href="lesson14.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">14</span> 蜜蜂</div><span class="page-num">P51</span></a>
-            <a href="lesson15.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">15*</span> 小虾</div><span class="page-num">P54</span></a>
+            <a href="lesson.html?id=13" class="lesson-item"><div class="lesson-title"><span class="lesson-no">13</span> 花钟</div><span class="page-num">P48</span></a>
+            <a href="lesson.html?id=14" class="lesson-item"><div class="lesson-title"><span class="lesson-no">14</span> 蜜蜂</div><span class="page-num">P51</span></a>
+            <a href="lesson.html?id=15" class="lesson-item"><div class="lesson-title"><span class="lesson-no">15*</span> 小虾</div><span class="page-num">P54</span></a>
+            <div class="special-item">◎ 习作：我做了一项小实验 / 语文园地</div>
         </div>
     </section>
 
     <section class="unit-card">
-        <div class="unit-header">更多单元</div>
+        <div class="unit-header">第五单元：大胆想象</div>
         <div class="lesson-grid">
-            <a href="lesson16.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">16</span> 宇宙的另一边</div><span class="page-num">P60</span></a>
-            <a href="lesson17.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">17</span> 我变成了一棵树</div><span class="page-num">P63</span></a>
-            <a href="lesson18.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">18</span> 童年的水墨画</div><span class="page-num">P72</span></a>
-            <a href="lesson19.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">19</span> 剃头大师</div><span class="page-num">P74</span></a>
-            <a href="lesson20.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">20</span> 肥皂泡</div><span class="page-num">P77</span></a>
-            <a href="lesson22.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">22</span> 我们奇妙的世界</div><span class="page-num">P86</span></a>
-            <a href="lesson25.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">25</span> 慢性子裁缝和急性子顾客</div><span class="page-num">P98</span></a>
-            <a href="lesson27.html" class="lesson-item"><div class="lesson-title"><span class="lesson-no">27</span> 漏</div><span class="page-num">P105</span></a>
+            <a href="lesson.html?id=16" class="lesson-item"><div class="lesson-title"><span class="lesson-no">16</span> 宇宙的另一边</div><span class="page-num">P60</span></a>
+            <a href="lesson.html?id=17" class="lesson-item"><div class="lesson-title"><span class="lesson-no">17</span> 我变成了一棵树</div><span class="page-num">P63</span></a>
+            <div class="special-item">◎ 习作例文 / 习作：奇妙的想象</div>
+        </div>
+    </section>
+
+    <section class="unit-card">
+        <div class="unit-header">第六单元：多彩童年</div>
+        <div class="lesson-grid">
+            <a href="lesson.html?id=18" class="lesson-item"><div class="lesson-title"><span class="lesson-no">18</span> 童年的水墨画</div><span class="page-num">P72</span></a>
+            <a href="lesson.html?id=19" class="lesson-item"><div class="lesson-title"><span class="lesson-no">19</span> 剃头大师</div><span class="page-num">P74</span></a>
+            <a href="lesson.html?id=20" class="lesson-item"><div class="lesson-title"><span class="lesson-no">20</span> 肥皂泡</div><span class="page-num">P77</span></a>
+            <a href="lesson.html?id=21" class="lesson-item"><div class="lesson-title"><span class="lesson-no">21*</span> 我不能失信</div><span class="page-num">P80</span></a>
+            <div class="special-item">◎ 习作：身边那些有特点的人 / 语文园地</div>
+        </div>
+    </section>
+
+    <section class="unit-card">
+        <div class="unit-header">第七单元：天地间奥秘</div>
+        <div class="lesson-grid">
+            <a href="lesson.html?id=22" class="lesson-item"><div class="lesson-title"><span class="lesson-no">22</span> 我们奇妙的世界</div><span class="page-num">P86</span></a>
+            <a href="lesson.html?id=23" class="lesson-item"><div class="lesson-title"><span class="lesson-no">23</span> 海底世界</div><span class="page-num">P89</span></a>
+            <a href="lesson.html?id=24" class="lesson-item"><div class="lesson-title"><span class="lesson-no">24</span> 火烧云</div><span class="page-num">P92</span></a>
+            <div class="special-item">◎ 口语交际：该不该劝阻 / 习作：国宝大熊猫 / 语文园地</div>
+        </div>
+    </section>
+
+    <section class="unit-card">
+        <div class="unit-header">第八单元：有趣的故事</div>
+        <div class="lesson-grid">
+            <a href="lesson.html?id=25" class="lesson-item"><div class="lesson-title"><span class="lesson-no">25</span> 慢性子裁缝和急性子顾客</div><span class="page-num">P98</span></a>
+            <a href="lesson.html?id=26" class="lesson-item"><div class="lesson-title"><span class="lesson-no">26*</span> 方帽子店</div><span class="page-num">P101</span></a>
+            <a href="lesson.html?id=27" class="lesson-item"><div class="lesson-title"><span class="lesson-no">27</span> 漏</div><span class="page-num">P105</span></a>
+            <a href="lesson.html?id=28" class="lesson-item"><div class="lesson-title"><span class="lesson-no">28*</span> 枣核</div><span class="page-num">P109</span></a>
+            <div class="special-item">◎ 口语交际：趣味故事会 / 习作：这样想象真有趣 / 语文园地</div>
         </div>
     </section>
 
