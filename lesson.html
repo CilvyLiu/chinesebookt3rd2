@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>同步点读引擎 - Nova 最终修正版</title>
+    <title>同步点读引擎 - Nova 工业级修复版</title>
     <script src="./js/hanzi-writer.min.js"></script>
     <script>
         const urlParams = new URLSearchParams(window.location.search);
@@ -21,21 +21,21 @@
             <div id="pdf-scroll-view">
                 <div id="pdf-render-wrapper" style="position: relative; display: inline-block;">
                     <canvas id="pdf-canvas"></canvas>
-                    <div id="hotspot-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></div>
+                    <div id="hotspot-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;"></div>
                 </div>
             </div>
         </section>
 
         <aside id="teaching-panel">
             <header id="lesson-header">
-                <h1 id="title-display">正在加载课件...</h1>
+                <h1 id="title-display">正在加载...</h1>
                 <nav id="page-switcher"></nav>
             </header>
             <article id="content-display">
                 <div class="placeholder">点击左侧文字开启学习</div>
             </article>
             <footer id="lesson-footer">
-                <button onclick="location.href='index.html'" class="ctrl-btn" style="background:#666; width: 80%;">回目录</button>
+                <button onclick="location.href='index.html'" class="ctrl-btn" style="background:#444; width: 80%;">回目录</button>
             </footer>
         </aside>
     </div>
@@ -46,19 +46,16 @@
         const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
         pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.js';
 
-        // 统一状态管理
         const state = {
             pdf: null,
             config: null,
             writer: null,
             audio: new Audio(),
-            isReading: false,
-            currentPageData: null
+            isReading: false
         };
 
         const getAudioUrl = (text) => `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(text)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
 
-        // 核心初始化
         async function init() {
             try {
                 const res = await fetch(`./data/lesson${lessonId}.json`);
@@ -79,14 +76,12 @@
         function buildNav() {
             const nav = document.getElementById('page-switcher');
             nav.innerHTML = '';
-            
             const fullBtn = document.createElement('button');
             fullBtn.className = "page-btn";
             fullBtn.style.background = "#f57c00";
             fullBtn.innerText = "🎵 全文朗读";
             fullBtn.onclick = () => {
-                // 💡 关键：用户点击瞬间解锁 Audio 权限
-                state.audio.play().then(() => state.audio.pause());
+                state.audio.play().then(() => state.audio.pause()); // 解锁权限
                 startFullRead();
             };
             nav.appendChild(fullBtn);
@@ -107,21 +102,31 @@
             const page = await state.pdf.getPage(num);
             const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.getElementById('pdf-canvas');
+            
+            // 💡 修复日志报错：设置 willReadFrequently
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             
             canvas.height = viewport.height;
             canvas.width = viewport.width;
-            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
-            // 清理并重建热区
+            // 💡 策略变更：先加载热区，不要等 PDF 渲染完
+            const pageData = state.config.pages.find(p => p.pdfPageNo === num);
+            setupHotspots(page, viewport, pageData);
+
+            // 异步渲染 PDF，不使用 await 阻塞热区
+            page.render({ canvasContext: ctx, viewport: viewport }).promise.catch(e => {
+                console.warn("PDF渲染有警告，但热区应已可用:", e);
+            });
+        }
+
+        async function setupHotspots(page, viewport, pageData) {
             const overlay = document.getElementById('hotspot-overlay');
             overlay.innerHTML = '';
             
-            state.currentPageData = state.config.pages.find(p => p.pdfPageNo === num);
             const textContent = await page.getTextContent();
-
             textContent.items.forEach(item => {
-                const spot = state.currentPageData.hotspots.find(s => 
+                // 精准匹配逻辑
+                const spot = pageData.hotspots.find(s => 
                     (s.char && item.str.includes(s.char)) || 
                     (s.search && item.str.includes(s.search))
                 );
@@ -129,9 +134,7 @@
                 if (spot) {
                     const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
                     const el = document.createElement('div');
-                    el.className = 'hotspot';
-                    // 绑定 ID 用于全文朗读时寻找 DOM
-                    el.id = `spot-${spot.id || spot.char}`;
+                    el.className = 'hotspot-item';
                     el.style.cssText = `
                         position: absolute;
                         left: ${(tx[4] / viewport.width) * 100}%;
@@ -139,87 +142,94 @@
                         width: ${(item.width / viewport.width) * 100}%;
                         height: ${(item.height / viewport.height) * 100}%;
                         cursor: pointer;
+                        z-index: 100;
                     `;
+                    el.setAttribute('data-id', spot.id || spot.char);
                     el.onclick = (e) => {
-                        e.stopPropagation();
+                        e.preventDefault();
                         state.isReading = false;
-                        handleAction(spot, el);
+                        updateTeachingUI(spot, el);
                     };
                     overlay.appendChild(el);
                 }
             });
         }
 
-        function handleAction(spot, el) {
-            // 1. UI 高亮
-            document.querySelectorAll('.active-hotspot').forEach(i => i.classList.remove('active-hotspot'));
-            if (el) el.classList.add('active-hotspot');
+        function updateTeachingUI(spot, element) {
+            // 高亮效果
+            document.querySelectorAll('.hotspot-item').forEach(h => h.style.background = 'transparent');
+            if (element) element.style.background = 'rgba(249, 168, 37, 0.3)';
 
-            // 2. 渲染右侧内容
             const display = document.getElementById('content-display');
+            
             if (spot.type === 'poem') {
                 display.innerHTML = `
-                    <div class="teaching-card expert-mode">
+                    <div class="teaching-card poem-card">
                         <section class="card-section"><h3>💡 名师赏析</h3><p>${spot.expand.note}</p></section>
-                        <section class="card-section"><h3>🧪 科学百科</h3><p>${spot.expand.science || '资料整理中'}</p></section>
+                        <section class="card-section"><h3>🧪 科学百科</h3><p>${spot.expand.science || '资料整理中...'}</p></section>
                     </div>`;
             } else {
+                // 💡 重新找回生字学习逻辑
                 display.innerHTML = `
-                    <div class="teaching-card word-mode">
-                        <div class="hanzi-wrap"><div id="writer-target"></div></div>
-                        <h2 style="font-size:2em; margin:10px 0;">${spot.char} [${spot.pinyin}]</h2>
-                        <div class="highlight-box" style="text-align:left;">
+                    <div class="teaching-card word-card">
+                        <div class="writer-box"><div id="writer-target"></div></div>
+                        <h2 class="word-head">${spot.char} <small>[${spot.pinyin}]</small></h2>
+                        <div class="info-grid">
                             <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
-                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
                             <p><strong>【字理】</strong>${spot.expand.zili || '见详解'}</p>
+                            <p style="color:#d32f2f"><strong>【易错】</strong>${spot.expand.error || '无'}</p>
                         </div>
-                        <button class="ctrl-btn" onclick="state.writer.animateCharacter()">演示笔顺</button>
+                        <button class="play-btn" onclick="state.writer.animateCharacter()">▶ 演示笔顺</button>
                     </div>`;
-                
-                // 💡 关键：确保 DOM 渲染后再初始化笔顺
-                if (spot.char) {
-                    state.writer = HanziWriter.create('writer-target', spot.char, {
-                        width: 150, height: 150, padding: 5, strokeColor: '#d32f2f'
-                    });
-                    state.writer.animateCharacter();
-                }
+
+                // 立即初始化笔顺
+                state.writer = HanziWriter.create('writer-target', spot.char, {
+                    width: 160, height: 160, padding: 5, strokeColor: '#d32f2f'
+                });
+                state.writer.animateCharacter();
             }
 
-            // 3. 播放语音
-            const text = spot.type === 'poem' ? spot.content : `${spot.char}。拼音：${spot.pinyin}。组词：${(spot.expand.group || [])[0] || ''}`;
-            state.audio.src = getAudioUrl(text);
-            state.audio.play().catch(e => console.log("Voice blocked, waiting for interaction"));
+            // 播放声音
+            const voiceText = spot.type === 'poem' ? spot.content : `${spot.char}。拼音：${spot.pinyin}。组词：${(spot.expand.group || [])[0] || ''}`;
+            state.audio.src = getAudioUrl(voiceText);
+            state.audio.play().catch(() => {});
         }
 
         async function startFullRead() {
             if (state.isReading) { state.isReading = false; state.audio.pause(); return; }
             state.isReading = true;
-
-            for (const spot of state.currentPageData.hotspots) {
+            
+            const pageData = state.config.pages.find(p => p.pdfPageNo === state.pdf.numPages ? state.pdf.numPages : 7); // 示例逻辑
+            // 遍历当前页面的所有 hotspot
+            const hotspots = document.querySelectorAll('.hotspot-item');
+            
+            for (let i = 0; i < hotspots.length; i++) {
                 if (!state.isReading) break;
-
-                const el = document.getElementById(`spot-${spot.id || spot.char}`);
-                handleAction(spot, el);
-
-                await new Promise(resolve => {
-                    state.audio.onended = resolve;
-                    state.audio.onerror = resolve;
+                const el = hotspots[i];
+                const spotId = el.getAttribute('data-id');
+                const pageData = state.config.pages.find(p => p.hotspots.some(s => (s.id || s.char) === spotId));
+                const spot = pageData.hotspots.find(s => (s.id || s.char) === spotId);
+                
+                updateTeachingUI(spot, el);
+                await new Promise(res => {
+                    state.audio.onended = res;
+                    state.audio.onerror = res;
                 });
-                await new Promise(r => setTimeout(r, 800));
+                await new Promise(r => setTimeout(r, 600));
             }
             state.isReading = false;
         }
 
-        init();
+        window.onload = init;
     </script>
 
     <style>
-        #hotspot-overlay { pointer-events: auto; }
-        .hotspot:hover { background: rgba(249, 168, 37, 0.2); }
-        .active-hotspot { background: rgba(249, 168, 37, 0.4) !important; border: 1px solid #f57c00; }
-        .hanzi-wrap { background: #fff; display: inline-block; padding: 10px; border-radius: 8px; border: 1px solid #ddd; }
-        .teaching-card { animation: fadeIn 0.3s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .hotspot-item { border-radius: 2px; border: 1px dashed transparent; }
+        .hotspot-item:hover { border: 1px dashed #f57c00; background: rgba(249, 168, 37, 0.1); }
+        .writer-box { background: #fff; border: 2px solid #eee; border-radius: 12px; padding: 10px; display: inline-block; }
+        .word-head { color: #d32f2f; margin: 10px 0; }
+        .info-grid { text-align: left; background: #fdf2f2; padding: 12px; border-radius: 8px; font-size: 14px; }
+        .play-btn { background: #d32f2f; color: #fff; border: none; padding: 8px 20px; border-radius: 20px; cursor: pointer; margin-top: 10px; }
     </style>
 </body>
 </html>
