@@ -50,16 +50,13 @@
         let lessonConfig = null;
         let writerInstance = null;
         let renderTask = null;
-        
         let isFullReading = false; 
         let currentPageNum = 0;
+        const player = new Audio();
 
-        // 语音引擎：采用拟人度最高的 4 号发音人
         function getAudioUrl(text) {
             return `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(text)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
         }
-
-        window.getHanziWriter = () => writerInstance;
 
         async function initEngine() {
             try {
@@ -67,21 +64,21 @@
                 lessonConfig = await response.json();
                 document.getElementById('title-display').innerText = lessonConfig.title;
 
-                const loadingTask = pdfjsLib.getDocument({
+                currentPdf = await pdfjsLib.getDocument({
                     url: lessonConfig.pdfPath || './book.pdf',
-                    isEvalSupported: false,
                     cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.14.305/cmaps/',
                     cMapPacked: true
-                });
+                }).promise;
 
-                currentPdf = await loadingTask.promise;
                 const nav = document.getElementById('page-switcher');
-                
                 const fullReadBtn = document.createElement('button');
                 fullReadBtn.className = "page-btn";
                 fullReadBtn.style.background = "#f9a825"; 
                 fullReadBtn.innerText = "🎵 全文朗读";
-                fullReadBtn.onclick = () => startFullReading(currentPageNum);
+                fullReadBtn.onclick = () => {
+                    player.play().then(() => player.pause()); 
+                    startFullReading(currentPageNum);
+                };
                 nav.appendChild(fullReadBtn);
 
                 lessonConfig.pages.forEach(p => {
@@ -93,24 +90,22 @@
                 });
 
                 renderPdfPage(lessonConfig.pages[0].pdfPageNo);
-            } catch (err) { console.error("引擎初始化失败:", err); }
+            } catch (err) { console.error("初始化失败:", err); }
         }
 
         async function renderPdfPage(num) {
             currentPageNum = num;
             isFullReading = false; 
             if (renderTask) renderTask.cancel();
-        
+
             const page = await currentPdf.getPage(parseInt(num));
             const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.getElementById('pdf-canvas');
-            
-            // 💡 优化点：添加 willReadFrequently 解决控制台性能警告
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             
             canvas.height = viewport.height;
             canvas.width = viewport.width;
-        
+
             renderTask = page.render({ canvasContext: ctx, viewport: viewport });
             await renderTask.promise;
 
@@ -123,73 +118,89 @@
             textContent.items.forEach(item => {
                 const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
                 const span = document.createElement('span');
-                
                 const left = (tx[4] / viewport.width * 100).toFixed(2);
                 const top = ((tx[5] - item.height) / viewport.height * 100).toFixed(2);
                 const width = (item.width / viewport.width * 100).toFixed(2);
                 const height = (item.height / viewport.height * 100).toFixed(2);
 
-                const isDefined = pageData.hotspots.some(s => 
-                    item.str.includes(s.search) || s.search?.includes(item.str.trim())
+                // 💡 增强匹配逻辑：支持单字和短语
+                const spot = pageData.hotspots.find(s => 
+                    (s.char && item.str.includes(s.char)) || 
+                    (s.search && item.str.includes(s.search)) ||
+                    (s.search && s.search.includes(item.str.trim()))
                 );
 
-                span.className = isDefined ? 'hotspot hotspot-word' : 'hotspot';
-                if (isDefined) span.setAttribute('data-text', item.str.trim());
-                
+                span.className = spot ? 'hotspot hotspot-word' : 'hotspot';
+                if (spot) span.setAttribute('data-target', spot.id || spot.char);
                 span.style.cssText = `left:${left}%; top:${top}%; width:${width}%; height:${height}%;`;
 
-                span.onclick = (e) => {
-                    isFullReading = false; 
+                span.onclick = () => {
+                    isFullReading = false;
                     highlightElement(span);
-                    matchAndActivate(item.str.trim(), pageData);
+                    if (spot) updateUI(spot, true);
                 };
                 overlay.appendChild(span);
             });
         }
 
-        // --- 核心修正：全文顺序朗读（先课文，后生字） ---
-        // --- 核心修正：全文顺序朗读（先课文，后生字） ---
-        async function startFullReading(num) {
-            if (isFullReading) { isFullReading = false; return; }
-            isFullReading = true;
+        function updateUI(spot, shouldPlayAudio = false) {
+            const display = document.getElementById('content-display');
             
-            const pageData = lessonConfig.pages.find(p => p.pdfPageNo === parseInt(num));
-            if (!pageData) return;
-        
-            // 💡 关键修改：不再只过滤 poems，而是把所有热点按“先诗后字”排序
-            const poems = pageData.hotspots.filter(h => h.type === 'poem');
-            const words = pageData.hotspots.filter(h => h.type === 'word');
-            const fullQueue = [...poems, ...words]; 
-        
-            for (let spot of fullQueue) {
-                if (!isFullReading) break;
-        
-                // PDF 高亮定位
-                const query = spot.search || spot.char;
-                const elements = document.querySelectorAll(`[data-text*="${query.substring(0,1)}"]`);
-                if (elements.length > 0) highlightElement(elements[0]);
-                
-                // 💡 构造朗读文本：生字增加“拼音”和“组词”前缀，防止读音太短没反应
-                let textToRead = "";
-                if (spot.type === 'poem') {
-                    textToRead = spot.content || spot.search;
-                } else {
-                    const groupStr = (spot.expand.group && spot.expand.group.length > 0) 
-                        ? `。组词：${spot.expand.group[0]}` : "";
-                    textToRead = `${spot.char}。拼音：${spot.pinyin || ''}${groupStr}`;
+            if (spot.type === 'poem') {
+                display.innerHTML = `
+                    <div class="teaching-card expert-mode">
+                        <section class="card-section"><h3>💡 名师赏析</h3><p>${spot.expand.note}</p></section>
+                        <section class="card-section" style="border-top: 1px dashed #ccc; margin-top:10px; padding-top:10px;">
+                            <h3>🧪 科学百科</h3><p>${spot.expand.science || '暂无百科资料'}</p>
+                        </section>
+                    </div>`;
+            } else {
+                // 💡 这里是找回的“生字学习模块”
+                display.innerHTML = `
+                    <div class="teaching-card word-mode">
+                        <div id="writer-target" style="margin: 0 auto; background:#fff; border-radius:8px;"></div>
+                        <h2 style="font-size:2.2em; margin:10px 0; color:#d32f2f;">${spot.char} <span style="font-size:0.6em; color:#666;">[${spot.pinyin || ''}]</span></h2>
+                        <div class="highlight-box" style="text-align:left;">
+                            <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
+                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
+                            <p><strong>【字理】</strong>${spot.expand.zili || '见识字表'}</p>
+                        </div>
+                        <button class="ctrl-btn" onclick="writerInstance.animateCharacter()">演示笔顺</button>
+                    </div>`;
+
+                if (spot.char) {
+                    // 确保旧的清除掉
+                    document.getElementById('writer-target').innerHTML = '';
+                    writerInstance = HanziWriter.create('writer-target', spot.char, {
+                        width: 160, height: 160, padding: 5, strokeColor: '#d32f2f',
+                        showOutline: true, delayBetweenStrokes: 200
+                    });
+                    writerInstance.animateCharacter();
                 }
-        
-                await new Promise((resolve) => {
-                    if (window.currentAudio) window.currentAudio.pause();
-                    window.currentAudio = new Audio(getAudioUrl(textToRead));
-                    window.currentAudio.onended = resolve;
-                    window.currentAudio.onerror = resolve;
-                    window.currentAudio.play().catch(resolve);
-                    
-                    // 💡 确保 UI 实时刷新（诗句显赏析，单字显笔顺）
-                    updateUI(spot);
+            }
+
+            if (shouldPlayAudio) {
+                let text = (spot.type === 'poem') ? spot.search : `${spot.char}。拼音：${spot.pinyin}。组词：${(spot.expand.group || [])[0] || ''}`;
+                player.src = getAudioUrl(text);
+                player.play();
+            }
+        }
+
+        async function startFullReading(num) {
+            if (isFullReading) { isFullReading = false; player.pause(); return; }
+            isFullReading = true;
+            const pageData = lessonConfig.pages.find(p => p.pdfPageNo === parseInt(num));
+            
+            for (let spot of pageData.hotspots) {
+                if (!isFullReading) break;
+                // 自动高亮页面上的字
+                const el = document.querySelector(`[data-target="${spot.id || spot.char}"]`);
+                highlightElement(el);
+                updateUI(spot, true);
+                await new Promise(resolve => {
+                    player.onended = resolve;
+                    player.onerror = resolve;
                 });
-                // 每个条目间增加 800ms 停顿，方便学生跟读
                 await new Promise(r => setTimeout(r, 800));
             }
             isFullReading = false;
@@ -198,80 +209,6 @@
         function highlightElement(el) {
             document.querySelectorAll('.active-hotspot').forEach(item => item.classList.remove('active-hotspot'));
             if (el) el.classList.add('active-hotspot');
-        }
-
-        function matchAndActivate(text, pageData) {
-            if (!text || !pageData) return;
-            let spot = pageData.hotspots.find(s => text.includes(s.search) || s.search.includes(text));
-            if (spot) {
-                handleActivation(spot);
-            }
-        }
-
-        // --- 修正：手动点读生字也要读拼音 ---
-       // --- 核心修正：单字点读增加丰富度 ---
-        function handleActivation(spot) {
-            if (window.currentAudio) {
-                window.currentAudio.pause();
-                window.currentAudio.currentTime = 0;
-            }
-            
-            let audioText = "";
-            if (spot.type === 'poem') {
-                audioText = spot.search;
-            } else {
-                // 点读单字时读：“融，拼音 róng，组词：融化”
-                const groupStr = (spot.expand.group && spot.expand.group.length > 0) 
-                    ? `。组词：${spot.expand.group[0]}` : "";
-                audioText = `${spot.char}。拼音：${spot.pinyin || ''}${groupStr}`;
-            }
-        
-            window.currentAudio = new Audio(getAudioUrl(audioText));
-            window.currentAudio.play();
-            updateUI(spot);
-        }
-
-        function updateUI(spot) {
-            const display = document.getElementById('content-display');
-            // 清理旧动画
-            if (writerInstance) {
-                document.getElementById('writer-target') && (document.getElementById('writer-target').innerHTML = '');
-            }
-
-            if (spot.type === 'poem') {
-                display.innerHTML = `
-                    <div class="teaching-card expert-mode">
-                        <section class="card-section">
-                            <h3>💡 名师赏析</h3>
-                            <p>${spot.expand.note}</p>
-                        </section>
-                        <section class="card-section" style="border-top: 1px dashed #ccc; margin-top:10px; padding-top:10px;">
-                            <h3>🧪 科学百科</h3>
-                            <p>${spot.expand.science || spot.expand.article || '暂无百科资料'}</p>
-                        </section>
-                    </div>`;
-            } else if (spot.type === 'word') {
-                display.innerHTML = `
-                    <div class="teaching-card word-mode">
-                        <div id="writer-target" style="margin: 0 auto;"></div>
-                        <h2 style="font-size:2em; margin:10px 0;">${spot.char} [${spot.pinyin || ''}]</h2>
-                        <div class="highlight-box">
-                            <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
-                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
-                        </div>
-                        <div class="card-section">
-                            <p><strong>字理：</strong>${spot.expand.zili || '见识字表'}</p>
-                        </div>
-                        <button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">演示笔顺</button>
-                    </div>`;
-
-                if (spot.char && spot.char.length === 1) {
-                    writerInstance = HanziWriter.create('writer-target', spot.char, {
-                        width: 150, height: 150, padding: 5, strokeColor: '#d32f2f'
-                    });
-                    writerInstance.animateCharacter();
-                }
-            }
         }
 
         initEngine();
