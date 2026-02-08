@@ -146,27 +146,28 @@
         }
 
         // --- 核心修正：全文顺序朗读（先课文，后生字） ---
+        // --- 核心修正：全文顺序朗读（先课文，后生字） ---
         async function startFullReading(num) {
             if (isFullReading) { isFullReading = false; return; }
             isFullReading = true;
             
             const pageData = lessonConfig.pages.find(p => p.pdfPageNo === parseInt(num));
             if (!pageData) return;
-
-            // 逻辑：将热点重新排序，确保学习体验流畅
+        
+            // 💡 关键修改：不再只过滤 poems，而是把所有热点按“先诗后字”排序
             const poems = pageData.hotspots.filter(h => h.type === 'poem');
             const words = pageData.hotspots.filter(h => h.type === 'word');
-            const queue = [...poems, ...words];
-
-            for (let spot of queue) {
+            const fullQueue = [...poems, ...words]; 
+        
+            for (let spot of fullQueue) {
                 if (!isFullReading) break;
-
-                // PDF 高亮
+        
+                // PDF 高亮定位
                 const query = spot.search || spot.char;
                 const elements = document.querySelectorAll(`[data-text*="${query.substring(0,1)}"]`);
                 if (elements.length > 0) highlightElement(elements[0]);
                 
-                // 构造朗读文本（生字会自动读出拼音组词）
+                // 💡 构造朗读文本：生字增加“拼音”和“组词”前缀，防止读音太短没反应
                 let textToRead = "";
                 if (spot.type === 'poem') {
                     textToRead = spot.content || spot.search;
@@ -175,16 +176,18 @@
                         ? `。组词：${spot.expand.group[0]}` : "";
                     textToRead = `${spot.char}。拼音：${spot.pinyin || ''}${groupStr}`;
                 }
-
+        
                 await new Promise((resolve) => {
                     if (window.currentAudio) window.currentAudio.pause();
                     window.currentAudio = new Audio(getAudioUrl(textToRead));
                     window.currentAudio.onended = resolve;
                     window.currentAudio.onerror = resolve;
                     window.currentAudio.play().catch(resolve);
-                    // 强制 UI 切换
+                    
+                    // 💡 确保 UI 实时刷新（诗句显赏析，单字显笔顺）
                     updateUI(spot);
                 });
+                // 每个条目间增加 800ms 停顿，方便学生跟读
                 await new Promise(r => setTimeout(r, 800));
             }
             isFullReading = false;
@@ -204,18 +207,23 @@
         }
 
         // --- 修正：手动点读生字也要读拼音 ---
+       // --- 核心修正：单字点读增加丰富度 ---
         function handleActivation(spot) {
-            if (window.currentAudio) window.currentAudio.pause();
-
+            if (window.currentAudio) {
+                window.currentAudio.pause();
+                window.currentAudio.currentTime = 0;
+            }
+            
             let audioText = "";
             if (spot.type === 'poem') {
                 audioText = spot.search;
             } else {
+                // 点读单字时读：“融，拼音 róng，组词：融化”
                 const groupStr = (spot.expand.group && spot.expand.group.length > 0) 
                     ? `。组词：${spot.expand.group[0]}` : "";
                 audioText = `${spot.char}。拼音：${spot.pinyin || ''}${groupStr}`;
             }
-
+        
             window.currentAudio = new Audio(getAudioUrl(audioText));
             window.currentAudio.play();
             updateUI(spot);
