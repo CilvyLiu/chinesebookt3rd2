@@ -51,11 +51,9 @@
         let writerInstance = null;
         let renderTask = null;
         
-        // --- 增量变量 ---
         let isFullReading = false; 
         let currentPageNum = 0;
 
-        // --- 增量功能：好听的语音接口 (晓晓级别拟人音) ---
         function getAudioUrl(text) {
             return `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(text)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
         }
@@ -76,13 +74,11 @@
                 });
 
                 currentPdf = await loadingTask.promise;
-                
                 const nav = document.getElementById('page-switcher');
                 
-                // --- 增量功能：添加全文朗读按钮 ---
                 const fullReadBtn = document.createElement('button');
                 fullReadBtn.className = "page-btn";
-                fullReadBtn.style.background = "#f9a825"; // 名师金
+                fullReadBtn.style.background = "#f9a825"; 
                 fullReadBtn.innerText = "🎵 全文朗读";
                 fullReadBtn.onclick = () => startFullReading(currentPageNum);
                 nav.appendChild(fullReadBtn);
@@ -101,7 +97,7 @@
 
         async function renderPdfPage(num) {
             currentPageNum = num;
-            isFullReading = false; // 翻页停止朗读
+            isFullReading = false; 
             if (renderTask) renderTask.cancel();
 
             const page = await currentPdf.getPage(parseInt(num));
@@ -135,13 +131,12 @@
                 );
 
                 span.className = isDefined ? 'hotspot hotspot-word' : 'hotspot';
-                // 增量：给热区打上内容标签方便朗读定位
                 if (isDefined) span.setAttribute('data-text', item.str.trim());
                 
                 span.style.cssText = `left:${left}%; top:${top}%; width:${width}%; height:${height}%;`;
 
                 span.onclick = (e) => {
-                    isFullReading = false; // 手动点读时停止全文模式
+                    isFullReading = false; 
                     highlightElement(span);
                     matchAndActivate(item.str.trim(), pageData);
                 };
@@ -149,28 +144,43 @@
             });
         }
 
-        // --- 增量功能：排队同步朗读 ---
+        // --- 重点修正：全文顺序朗读（诗句+生字组词） ---
         async function startFullReading(num) {
             if (isFullReading) { isFullReading = false; return; }
             isFullReading = true;
             
             const pageData = lessonConfig.pages.find(p => p.pdfPageNo === parseInt(num));
-            const poems = pageData.hotspots.filter(h => h.type === 'poem');
+            // 增量修正：不再过滤 poem，遍历所有 hotspot
+            const allSpots = pageData.hotspots;
 
-            for (let spot of poems) {
+            for (let spot of allSpots) {
                 if (!isFullReading) break;
-                // 在 PDF 上找到对应行并高亮
-                const elements = document.querySelectorAll(`[data-text*="${spot.search.substring(0,2)}"]`);
+
+                // PDF 高亮定位
+                const query = spot.search || spot.char;
+                const elements = document.querySelectorAll(`[data-text*="${query.substring(0,1)}"]`);
                 if (elements.length > 0) highlightElement(elements[0]);
                 
+                // 构造复合朗读文本
+                let textToRead = "";
+                if (spot.type === 'poem') {
+                    textToRead = spot.content || spot.search;
+                } else if (spot.type === 'word') {
+                    const groupStr = (spot.expand.group && spot.expand.group.length > 0) 
+                        ? `。组词：${spot.expand.group.join('，')}` : "";
+                    textToRead = `${spot.char}。拼音：${spot.pinyin || ''}${groupStr}`;
+                }
+
                 await new Promise((resolve) => {
                     if (window.currentAudio) window.currentAudio.pause();
-                    window.currentAudio = new Audio(getAudioUrl(spot.content || spot.search));
+                    window.currentAudio = new Audio(getAudioUrl(textToRead));
                     window.currentAudio.onended = resolve;
                     window.currentAudio.onerror = resolve;
                     window.currentAudio.play();
+                    // 增量修正：UI 同步刷新，单字显笔顺，诗显赏析
                     updateUI(spot);
                 });
+                await new Promise(r => setTimeout(r, 600));
             }
             isFullReading = false;
         }
