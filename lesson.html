@@ -100,15 +100,17 @@
             currentPageNum = num;
             isFullReading = false; 
             if (renderTask) renderTask.cancel();
-
+        
             const page = await currentPdf.getPage(parseInt(num));
             const viewport = page.getViewport({ scale: 1.5 });
             const canvas = document.getElementById('pdf-canvas');
-            const ctx = canvas.getContext('2d');
+            
+            // 💡 优化点：添加 willReadFrequently 解决控制台性能警告
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             
             canvas.height = viewport.height;
             canvas.width = viewport.width;
-
+        
             renderTask = page.render({ canvasContext: ctx, viewport: viewport });
             await renderTask.promise;
 
