@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>同步点读引擎 - Nova 深度增强版</title>
+    <title>同步点读引擎 - Nova 深度功能版</title>
     <script src="./js/hanzi-writer.min.js"></script>
     <script>
         const urlParams = new URLSearchParams(window.location.search);
@@ -18,9 +18,9 @@
     <div id="app">
         <section id="reader-container">
             <div id="pdf-scroll-view">
-                <div id="pdf-render-wrapper">
+                <div id="pdf-render-wrapper" style="position: relative;">
                     <canvas id="pdf-canvas"></canvas>
-                    <div id="hotspot-overlay"></div>
+                    <div id="hotspot-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20;"></div>
                 </div>
             </div>
         </section>
@@ -31,7 +31,7 @@
                 <nav id="page-switcher"></nav>
             </header>
             <article id="content-display">
-                <div class="placeholder">点击左侧课文内容开启点读</div>
+                <div class="placeholder">点击课文内容，开启名师讲堂</div>
             </article>
         </aside>
     </div>
@@ -47,21 +47,23 @@
             isAutoPlaying: false
         };
 
-        const getAudioUrl = (text) => `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(text)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
+        const getAudioUrl = (t) => `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(t)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
 
         async function init() {
-            const res = await fetch(`./data/lesson${lessonId}.json`);
-            state.config = await res.json();
-            document.getElementById('title-display').innerText = state.config.title;
+            try {
+                const res = await fetch(`./data/lesson${lessonId}.json`);
+                state.config = await res.json();
+                document.getElementById('title-display').innerText = state.config.title;
 
-            state.pdf = await pdfjsLib.getDocument({
-                url: state.config.pdfPath || './book.pdf',
-                cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.14.305/cmaps/',
-                cMapPacked: true
-            }).promise;
+                state.pdf = await pdfjsLib.getDocument({
+                    url: state.config.pdfPath || './book.pdf',
+                    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.14.305/cmaps/',
+                    cMapPacked: true
+                }).promise;
 
-            renderNav();
-            renderPage(state.config.pages[0].pdfPageNo);
+                renderNav();
+                renderPage(state.config.pages[0].pdfPageNo);
+            } catch (e) { console.error("加载失败", e); }
         }
 
         async function renderPage(num) {
@@ -87,24 +89,23 @@
                 if (spot) {
                     const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
                     const div = document.createElement('div');
-                    div.className = 'hotspot-item';
+                    div.className = 'hotspot';
                     div.style.cssText = `position:absolute; cursor:pointer; 
                         left:${(tx[4]/viewport.width)*100}%; top:${((tx[5]-item.height)/viewport.height)*100}%;
-                        width:${(item.width/viewport.width)*100}%; height:${(item.height/viewport.height)*100}%; z-index:100;`;
+                        width:${(item.width/viewport.width)*100}%; height:${(item.height/viewport.height)*100}%;`;
                     
-                    div.onclick = (e) => { e.stopPropagation(); executeSpot(spot, div); };
+                    div.onclick = (e) => { e.stopPropagation(); activateSpot(spot, div); };
                     overlay.appendChild(div);
                 }
             });
-
-            page.render({ canvasContext: ctx, viewport: viewport }).promise.catch(()=>{});
+            page.render({ canvasContext: ctx, viewport: viewport });
         }
 
         function stopAudio() {
             if (state.audio) { state.audio.pause(); state.audio.src = ''; state.audio = null; }
         }
 
-        function executeSpot(spot, el) {
+        function activateSpot(spot, el) {
             stopAudio();
             document.querySelectorAll('.active-hotspot').forEach(i => i.classList.remove('active-hotspot'));
             if(el) el.classList.add('active-hotspot');
@@ -112,67 +113,47 @@
             const display = document.getElementById('content-display');
             
             if (spot.type === 'poem') {
-                // 💡 重点：完整渲染名师赏析、百科、问题
+                // 💡 核心：深度还原 JSON 里的所有模块
                 display.innerHTML = `
                     <div class="teaching-card expert-mode">
-                        <section class="card-section">
-                            <h3 class="gold-title">💡 名师赏析</h3>
-                            <p>${spot.expand.note}</p>
-                        </section>
-                        <section class="card-section">
-                            <h3 class="blue-title">🧪 科学百科</h3>
-                            <p>${spot.expand.science || '暂无百科资料'}</p>
-                        </section>
-                        <section class="card-section quiz-box">
-                            <h3 class="green-title">❓ 思考探究</h3>
-                            <p>${spot.expand.quiz || '想一想：诗中描绘了怎样的画面？'}</p>
-                        </section>
+                        <section class="card-section"><h3>💡 名师赏析</h3><p>${spot.expand.note}</p></section>
+                        <section class="card-section"><h3>🧪 科学百科</h3><p>${spot.expand.science || '暂无内容'}</p></section>
+                        ${spot.expand.quiz ? `<section class="card-section quiz-box"><h3>❓ 思考探究</h3><p>${spot.expand.quiz}</p></section>` : ''}
+                        ${spot.expand.qa ? `<section class="card-section quiz-box"><h3>🤔 问答记录</h3><p><strong>问：</strong>${spot.expand.qa.q}<br><strong>答：</strong>${spot.expand.qa.a}</p></section>` : ''}
                         ${spot.expand.article ? `<section class="card-section"><h3>📖 背景知识</h3><p>${spot.expand.article}</p></section>` : ''}
                     </div>`;
             } else {
+                // 💡 还原生字模式
                 display.innerHTML = `
                     <div class="teaching-card word-mode">
                         <div id="writer-target"></div>
-                        <h2 class="char-title">${spot.char} <small>[${spot.pinyin}]</small></h2>
+                        <h2 style="color:#d32f2f; font-size:2.8rem;">${spot.char} <small>[${spot.pinyin}]</small></h2>
                         <div class="highlight-box">
                             <p><span class="label-red">【组词】</span>${spot.expand.group.join('、')}</p>
                             <p><span class="label-red">【易错】</span>${spot.expand.error}</p>
-                            <p><span class="label-red">【字理】</span>${spot.expand.zili || '见详解'}</p>
+                            <p><span class="label-red">【字理】</span>${spot.expand.zili}</p>
                         </div>
                         <button class="ctrl-btn" onclick="state.writer.animateCharacter()">演示笔顺</button>
                     </div>`;
-                
-                state.writer = HanziWriter.create('writer-target', spot.char, {
-                    width: 150, height: 150, padding: 5, strokeColor: '#d32f2f'
-                });
+                state.writer = HanziWriter.create('writer-target', spot.char, { width: 160, height: 160, padding: 5, strokeColor: '#d32f2f' });
                 state.writer.animateCharacter();
             }
 
             const ttsText = spot.type === 'poem' ? spot.content : `${spot.char}。拼音：${spot.pinyin}。组词：${spot.expand.group[0]}`;
             state.audio = new Audio(getAudioUrl(ttsText));
-            state.audio.play().catch(()=>{});
+            state.audio.play();
         }
 
         function renderNav() {
             const nav = document.getElementById('page-switcher');
             state.config.pages.forEach(p => {
                 const btn = document.createElement('button');
-                btn.className = "page-btn";
-                btn.innerText = `P${p.pdfPageNo}`;
+                btn.className = "page-btn"; btn.innerText = `P${p.pdfPageNo}`;
                 btn.onclick = () => renderPage(p.pdfPageNo);
                 nav.appendChild(btn);
             });
         }
-
         window.onload = init;
     </script>
-    <style>
-        .hotspot-item:hover { background: rgba(249, 168, 37, 0.15); }
-        .active-hotspot { background: rgba(249, 168, 37, 0.3) !important; border: 1px solid #f9a825; }
-        .card-section { margin-bottom: 20px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
-        .gold-title { color: #f9a825; } .blue-title { color: #1976d2; } .green-title { color: #2e7d32; }
-        .quiz-box { background: #f1f8e9; padding: 10px; border-radius: 8px; border: none; }
-        #writer-target { background: #fff; border: 1px solid #ddd; border-radius: 8px; margin: 0 auto; }
-    </style>
 </body>
 </html>
