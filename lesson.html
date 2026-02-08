@@ -54,6 +54,7 @@
         let isFullReading = false; 
         let currentPageNum = 0;
 
+        // 语音引擎：采用拟人度最高的 4 号发音人
         function getAudioUrl(text) {
             return `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(text)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
         }
@@ -144,30 +145,34 @@
             });
         }
 
-        // --- 重点修正：全文顺序朗读（诗句+生字组词） ---
+        // --- 核心修正：全文顺序朗读（先课文，后生字） ---
         async function startFullReading(num) {
             if (isFullReading) { isFullReading = false; return; }
             isFullReading = true;
             
             const pageData = lessonConfig.pages.find(p => p.pdfPageNo === parseInt(num));
-            // 增量修正：不再过滤 poem，遍历所有 hotspot
-            const allSpots = pageData.hotspots;
+            if (!pageData) return;
 
-            for (let spot of allSpots) {
+            // 逻辑：将热点重新排序，确保学习体验流畅
+            const poems = pageData.hotspots.filter(h => h.type === 'poem');
+            const words = pageData.hotspots.filter(h => h.type === 'word');
+            const queue = [...poems, ...words];
+
+            for (let spot of queue) {
                 if (!isFullReading) break;
 
-                // PDF 高亮定位
+                // PDF 高亮
                 const query = spot.search || spot.char;
                 const elements = document.querySelectorAll(`[data-text*="${query.substring(0,1)}"]`);
                 if (elements.length > 0) highlightElement(elements[0]);
                 
-                // 构造复合朗读文本
+                // 构造朗读文本（生字会自动读出拼音组词）
                 let textToRead = "";
                 if (spot.type === 'poem') {
                     textToRead = spot.content || spot.search;
-                } else if (spot.type === 'word') {
+                } else {
                     const groupStr = (spot.expand.group && spot.expand.group.length > 0) 
-                        ? `。组词：${spot.expand.group.join('，')}` : "";
+                        ? `。组词：${spot.expand.group[0]}` : "";
                     textToRead = `${spot.char}。拼音：${spot.pinyin || ''}${groupStr}`;
                 }
 
@@ -176,11 +181,11 @@
                     window.currentAudio = new Audio(getAudioUrl(textToRead));
                     window.currentAudio.onended = resolve;
                     window.currentAudio.onerror = resolve;
-                    window.currentAudio.play();
-                    // 增量修正：UI 同步刷新，单字显笔顺，诗显赏析
+                    window.currentAudio.play().catch(resolve);
+                    // 强制 UI 切换
                     updateUI(spot);
                 });
-                await new Promise(r => setTimeout(r, 600));
+                await new Promise(r => setTimeout(r, 800));
             }
             isFullReading = false;
         }
@@ -195,20 +200,22 @@
             let spot = pageData.hotspots.find(s => text.includes(s.search) || s.search.includes(text));
             if (spot) {
                 handleActivation(spot);
-            } else {
-                handleActivation({ 
-                    type: 'word', char: text.charAt(0), pinyin: '点读', 
-                    expand: { zili: "自动识别文本", group: [text] } 
-                });
             }
         }
 
+        // --- 修正：手动点读生字也要读拼音 ---
         function handleActivation(spot) {
-            if (window.currentAudio) {
-                window.currentAudio.pause();
-                window.currentAudio.currentTime = 0;
+            if (window.currentAudio) window.currentAudio.pause();
+
+            let audioText = "";
+            if (spot.type === 'poem') {
+                audioText = spot.search;
+            } else {
+                const groupStr = (spot.expand.group && spot.expand.group.length > 0) 
+                    ? `。组词：${spot.expand.group[0]}` : "";
+                audioText = `${spot.char}。拼音：${spot.pinyin || ''}${groupStr}`;
             }
-            const audioText = spot.search || spot.char;
+
             window.currentAudio = new Audio(getAudioUrl(audioText));
             window.currentAudio.play();
             updateUI(spot);
@@ -216,6 +223,11 @@
 
         function updateUI(spot) {
             const display = document.getElementById('content-display');
+            // 清理旧动画
+            if (writerInstance) {
+                document.getElementById('writer-target') && (document.getElementById('writer-target').innerHTML = '');
+            }
+
             if (spot.type === 'poem') {
                 display.innerHTML = `
                     <div class="teaching-card expert-mode">
@@ -231,22 +243,21 @@
             } else if (spot.type === 'word') {
                 display.innerHTML = `
                     <div class="teaching-card word-mode">
-                        <div id="writer-target"></div>
-                        <h2>${spot.char} [${spot.pinyin || ''}]</h2>
+                        <div id="writer-target" style="margin: 0 auto;"></div>
+                        <h2 style="font-size:2em; margin:10px 0;">${spot.char} [${spot.pinyin || ''}]</h2>
                         <div class="highlight-box">
-                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
                             <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
+                            <p><strong>【易错】</strong>${spot.expand.error || '注意笔顺'}</p>
                         </div>
                         <div class="card-section">
-                            <p><strong>字理：</strong>${spot.expand.zili}</p>
+                            <p><strong>字理：</strong>${spot.expand.zili || '见识字表'}</p>
                         </div>
                         <button class="ctrl-btn" onclick="window.getHanziWriter().animateCharacter()">演示笔顺</button>
                     </div>`;
 
                 if (spot.char && spot.char.length === 1) {
-                    document.getElementById('writer-target').innerHTML = '';
                     writerInstance = HanziWriter.create('writer-target', spot.char, {
-                        width: 140, height: 140, padding: 5, strokeColor: '#d32f2f'
+                        width: 150, height: 150, padding: 5, strokeColor: '#d32f2f'
                     });
                     writerInstance.animateCharacter();
                 }
