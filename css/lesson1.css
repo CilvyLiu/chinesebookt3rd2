@@ -1,202 +1,230 @@
-/* --- Nova 专属全栈基础变量 --- */
-:root {
-    --primary-color: #2e7d32;   /* 森林绿 - 代表教育与成长 */
-    --accent-color: #d32f2f;    /* 书法红 - 用于生字和警告 */
-    --expert-gold: #f9a825;     /* 名师金 - 赏析专用 */
-    --bg-color: #f5f5f5;
-    --panel-width: 380px;       /* 稍微拓宽一点，保证文字呼吸感 */
-    --card-shadow: 0 4px 15px rgba(0,0,0,0.1);
-}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>同步点读引擎 - Nova 最终稳健版</title>
+    <script src="./js/hanzi-writer.min.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const lessonId = urlParams.get('id') || '1';
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = `./css/lesson${lessonId}.css`;
+        document.head.appendChild(link);
+    </script>
+</head>
+<body class="lesson-engine">
 
-/* --- 全局布局优化 --- */
-body, html {
-    margin: 0; padding: 0;
-    height: 100%; width: 100%;
-    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
-    background-color: var(--bg-color);
-    overflow: hidden; 
-}
+    <div id="app">
+        <section id="reader-container">
+            <div id="pdf-scroll-view">
+                <div id="pdf-render-wrapper" style="position: relative; display: inline-block;">
+                    <canvas id="pdf-canvas"></canvas>
+                    <div id="hotspot-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;"></div>
+                </div>
+            </div>
+        </section>
 
-#app {
-    display: flex;
-    height: 100vh;
-    width: 100vw;
-}
+        <aside id="teaching-panel">
+            <header id="lesson-header">
+                <h1 id="title-display">载入课件中...</h1>
+                <nav id="page-switcher"></nav>
+            </header>
+            <article id="content-display">
+                <div class="placeholder">点击左侧文字开启名师讲堂</div>
+            </article>
+            <footer id="lesson-footer">
+                <button onclick="location.href='index.html'" class="ctrl-btn" style="background:#666; width: 80%;">返回目录</button>
+            </footer>
+        </aside>
+    </div>
 
-/* --- 左侧：PDF 阅读区 --- */
-#reader-container {
-    flex: 1;
-    background: #525659; 
-    overflow: auto;
-    display: flex;
-    justify-content: center;
-    position: relative;
-    -webkit-overflow-scrolling: touch; 
-}
+    <script src="./js/pdf.js"></script>
+    
+    <script>
+        const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.js';
 
-#pdf-render-wrapper {
-    position: relative;
-    margin: 20px;
-    box-shadow: 0 0 30px rgba(0,0,0,0.4);
-}
+        // 全局状态管理
+        const state = {
+            pdf: null,
+            config: null,
+            writer: null,
+            audio: new Audio(),
+            isReading: false,
+            currentPageData: null
+        };
 
-/* --- 热区与点读高亮逻辑 --- */
-.hotspot {
-    position: absolute;
-    border: 2px dashed transparent;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    border-radius: 4px;
-    cursor: pointer;
-    z-index: 5;
-}
+        // 语音参数优化：使用百度标准普通话接口
+        const getAudioUrl = (text) => `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(text)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
 
-/* 重点词汇样式：默认带一个淡淡的底色 */
-.hotspot-word {
-    border-bottom: 2px solid rgba(211, 47, 47, 0.3);
-}
+        async function initEngine() {
+            try {
+                const response = await fetch(`./data/lesson${lessonId}.json`);
+                state.config = await response.json();
+                document.getElementById('title-display').innerText = state.config.title;
 
-/* 悬停反馈 */
-.hotspot:hover {
-    background: rgba(46, 125, 50, 0.15);
-    border-color: var(--primary-color);
-}
+                state.pdf = await pdfjsLib.getDocument({
+                    url: state.config.pdfPath || './book.pdf',
+                    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.14.305/cmaps/',
+                    cMapPacked: true
+                }).promise;
 
-/* 关键：激活锁定状态 (JS点击后添加此Class) */
-.hotspot.active-hotspot {
-    background: rgba(255, 215, 0, 0.25) !important;
-    border: 2px solid var(--expert-gold) !important;
-    box-shadow: 0 0 12px rgba(249, 168, 37, 0.5);
-    z-index: 20;
-}
+                setupNavigation();
+                renderPage(state.config.pages[0].pdfPageNo);
+            } catch (err) { console.error("初始化失败:", err); }
+        }
 
-/* --- 右侧：教学面板 --- */
-#teaching-panel {
-    width: var(--panel-width);
-    background: #ffffff;
-    border-left: 1px solid #ddd;
-    display: flex;
-    flex-direction: column;
-    z-index: 10;
-    box-shadow: -5px 0 15px rgba(0,0,0,0.05);
-}
+        function setupNavigation() {
+            const nav = document.getElementById('page-switcher');
+            nav.innerHTML = '';
+            
+            // 全文朗读按钮：具备解锁音频权限功能
+            const fullBtn = document.createElement('button');
+            fullBtn.className = "page-btn";
+            fullBtn.style.background = "#f9a825";
+            fullBtn.innerText = "🎵 全文朗读";
+            fullBtn.onclick = () => {
+                // 用户点击瞬间播放并暂停，绕过 Autoplay 限制
+                state.audio.play().then(() => state.audio.pause());
+                startAutoReading();
+            };
+            nav.appendChild(fullBtn);
 
-#lesson-header {
-    padding: 24px 20px;
-    background: var(--primary-color);
-    color: white;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
+            state.config.pages.forEach(p => {
+                const btn = document.createElement('button');
+                btn.className = "page-btn";
+                btn.innerText = `P${p.pdfPageNo}`;
+                btn.onclick = () => renderPage(p.pdfPageNo);
+                nav.appendChild(btn);
+            });
+        }
 
-#title-display { margin: 0; font-size: 1.4rem; font-weight: 600; }
+        async function renderPage(pageNum) {
+            state.isReading = false;
+            state.audio.pause();
+            
+            const page = await state.pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.getElementById('pdf-canvas');
+            
+            // 解决 willReadFrequently 警告
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
 
-#page-switcher {
-    margin-top: 15px;
-    display: flex;
-    gap: 10px;
-    overflow-x: auto;
-    padding-bottom: 5px;
-}
+            // 1. 立即加载热区数据，不等待渲染
+            state.currentPageData = state.config.pages.find(p => p.pdfPageNo === pageNum);
+            const overlay = document.getElementById('hotspot-overlay');
+            overlay.innerHTML = '';
 
-/* 自定义滚动条 (侧边栏) */
-#page-switcher::-webkit-scrollbar { height: 4px; }
-#page-switcher::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 2px; }
+            const textContent = await page.getTextContent();
+            textContent.items.forEach(item => {
+                const spot = state.currentPageData.hotspots.find(s => 
+                    (s.char && item.str.includes(s.char)) || 
+                    (s.search && item.str.includes(s.search))
+                );
 
-.page-btn {
-    background: rgba(255,255,255,0.15);
-    border: 1px solid rgba(255,255,255,0.3);
-    color: white;
-    padding: 6px 14px;
-    border-radius: 18px;
-    font-size: 0.85rem;
-    transition: all 0.2s;
-}
-.page-btn:hover { background: rgba(255,255,255,0.3); }
+                if (spot) {
+                    const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+                    const el = document.createElement('div');
+                    el.className = 'hotspot-item';
+                    el.id = `spot-${spot.id || spot.char}`;
+                    el.style.cssText = `
+                        position: absolute;
+                        left: ${(tx[4] / viewport.width) * 100}%;
+                        top: ${((tx[5] - item.height) / viewport.height) * 100}%;
+                        width: ${(item.width / viewport.width) * 100}%;
+                        height: ${(item.height / viewport.height) * 100}%;
+                        cursor: pointer;
+                        z-index: 100;
+                    `;
+                    el.onclick = (e) => {
+                        e.stopPropagation();
+                        state.isReading = false; // 手动点读打断自动朗读
+                        activateAction(spot, el);
+                    };
+                    overlay.appendChild(el);
+                }
+            });
 
-/* --- 交互内容卡片 --- */
-#content-display {
-    flex: 1;
-    padding: 20px;
-    overflow-y: auto;
-    background-image: linear-gradient(#fff 0%, #fafafa 100%);
-}
+            // 2. 异步渲染PDF（即便有Knockout报错也不影响热区）
+            page.render({ canvasContext: ctx, viewport: viewport }).promise.catch(e => console.warn("渲染引擎警告:", e));
+        }
 
-.teaching-card {
-    animation: slideIn 0.35s ease-out;
-}
+        function activateAction(spot, element) {
+            // UI 高亮切换
+            document.querySelectorAll('.active-hotspot').forEach(el => el.classList.remove('active-hotspot'));
+            if (element) element.classList.add('active-hotspot');
 
-.card-section {
-    background: #fff;
-    border-radius: 12px;
-    padding: 18px;
-    margin-bottom: 20px;
-    box-shadow: var(--card-shadow);
-    border-top: 4px solid var(--primary-color); /* 改为顶边栏更现代 */
-    position: relative;
-}
+            const display = document.getElementById('content-display');
+            
+            if (spot.type === 'poem') {
+                display.innerHTML = `
+                    <div class="teaching-card expert-mode">
+                        <section class="card-section"><h3>💡 名师赏析</h3><p>${spot.expand.note}</p></section>
+                        <section class="card-section" style="border-top: 1px dashed #ccc; margin-top:10px; padding-top:10px;">
+                            <h3>🧪 科学百科</h3><p>${spot.expand.science || spot.expand.article || '暂无资料'}</p>
+                        </section>
+                    </div>`;
+            } else {
+                // 恢复生字学习模块
+                display.innerHTML = `
+                    <div class="teaching-card word-mode">
+                        <div class="hanzi-wrap"><div id="writer-target"></div></div>
+                        <h2 style="font-size:2.5em; color:#d32f2f; margin:10px 0;">${spot.char} <small style="font-size:0.5em; color:#666;">[${spot.pinyin}]</small></h2>
+                        <div class="highlight-box">
+                            <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
+                            <p><strong>【易错】</strong>${spot.expand.error || '规范书写'}</p>
+                            <p><strong>【字理】</strong>${spot.expand.zili || '见详解'}</p>
+                        </div>
+                        <button class="ctrl-btn" style="margin-top:10px" onclick="state.writer.animateCharacter()">演示笔顺</button>
+                    </div>`;
 
-/* 诗词模式特化 */
-.expert-mode .card-section { border-top-color: var(--expert-gold); }
-.expert-mode h3 { color: var(--expert-gold); margin-top: 0; }
+                // 立即初始化笔顺动画
+                state.writer = HanziWriter.create('writer-target', spot.char, {
+                    width: 160, height: 160, padding: 5, strokeColor: '#d32f2f',
+                    showOutline: true, delayBetweenStrokes: 300
+                });
+                state.writer.animateCharacter();
+            }
 
-/* 生字交互模式 */
-.word-mode { text-align: center; }
-.word-mode h2 { 
-    font-size: 3rem; 
-    color: var(--accent-color); 
-    margin: 10px 0;
-    font-family: "KaiTi", "STKaiti", serif; /* 生字用楷体更有感觉 */
-}
+            // 播放同步语音
+            const ttsText = spot.type === 'poem' ? spot.content : `${spot.char}。拼音：${spot.pinyin}。组词：${(spot.expand.group || [])[0] || ''}`;
+            state.audio.src = getAudioUrl(ttsText);
+            state.audio.play().catch(e => console.log("语音播放被拦截，请先点击页面"));
+        }
 
-#writer-target { 
-    background: #fff; 
-    border: 2px solid #f0f0f0; 
-    margin: 0 auto 20px;
-    border-radius: 12px;
-    overflow: hidden;
-    /* 给田字格背景 */
-    background-image: radial-gradient(#eee 1px, transparent 1px);
-    background-size: 20px 20px;
-}
+        async function startAutoReading() {
+            if (state.isReading) { state.isReading = false; state.audio.pause(); return; }
+            state.isReading = true;
 
-/* 重点标注：易错、组词 */
-.highlight-box {
-    background: #fff9f9;
-    border: 1px solid #ffebee;
-    padding: 10px;
-    border-radius: 8px;
-    margin: 10px 0;
-    text-align: left;
-}
+            const hotspots = state.currentPageData.hotspots;
+            for (let spot of hotspots) {
+                if (!state.isReading) break;
 
-.label-red { color: var(--accent-color); font-weight: bold; margin-right: 5px; }
+                const el = document.getElementById(`spot-${spot.id || spot.char}`);
+                activateAction(spot, el);
 
-.ctrl-btn {
-    background: var(--primary-color);
-    color: white;
-    border: none;
-    padding: 12px 28px;
-    border-radius: 25px;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 10px rgba(46, 125, 50, 0.3);
-}
-.ctrl-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(46, 125, 50, 0.4); }
+                await new Promise(resolve => {
+                    state.audio.onended = resolve;
+                    state.audio.onerror = resolve;
+                });
+                await new Promise(r => setTimeout(r, 800)); // 句间停顿
+            }
+            state.isReading = false;
+        }
 
-/* --- 移动端 & 平板适配 --- */
-@media (max-width: 900px) {
-    #app { flex-direction: column; }
-    #teaching-panel {
-        width: 100%;
-        height: 45vh; 
-        border-left: none;
-        border-top: 3px solid var(--primary-color);
-    }
-    #reader-container { height: 55vh; }
-}
+        initEngine();
+    </script>
 
-/* --- 动画效果 --- */
-@keyframes slideIn {
-    from { opacity: 0; transform: translateY(15px); }
-    to { opacity: 1; transform: translateY(0); }
-}
+    <style>
+        /* 补充工业级样式 */
+        .hotspot-item { border-radius: 4px; transition: background 0.2s; }
+        .hotspot-item:hover { background: rgba(249, 168, 37, 0.15); }
+        .active-hotspot { background: rgba(249, 168, 37, 0.3) !important; border: 2px solid #f9a825 !important; }
+        .hanzi-wrap { background: #fff; border: 1px solid #eee; display: inline-block; padding: 10px; border-radius: 12px; }
+    </style>
+</body>
+</html>
