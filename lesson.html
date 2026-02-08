@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>同步点读引擎 - Nova 最终稳健版</title>
+    <title>同步点读引擎 - Nova 深度增强版</title>
     <script src="./js/hanzi-writer.min.js"></script>
     <script>
         const urlParams = new URLSearchParams(window.location.search);
         const lessonId = urlParams.get('id') || '1';
         const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = `./css/lesson${lessonId}.css`;
+        link.rel = 'stylesheet'; link.href = `./css/lesson${lessonId}.css`;
         document.head.appendChild(link);
     </script>
 </head>
@@ -19,79 +18,143 @@
     <div id="app">
         <section id="reader-container">
             <div id="pdf-scroll-view">
-                <div id="pdf-render-wrapper" style="position: relative; display: inline-block;">
+                <div id="pdf-render-wrapper">
                     <canvas id="pdf-canvas"></canvas>
-                    <div id="hotspot-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;"></div>
+                    <div id="hotspot-overlay"></div>
                 </div>
             </div>
         </section>
 
         <aside id="teaching-panel">
             <header id="lesson-header">
-                <h1 id="title-display">载入课件中...</h1>
+                <h1 id="title-display">载入中...</h1>
                 <nav id="page-switcher"></nav>
             </header>
             <article id="content-display">
-                <div class="placeholder">点击左侧文字开启名师讲堂</div>
+                <div class="placeholder">点击左侧课文内容开启点读</div>
             </article>
-            <footer id="lesson-footer">
-                <button onclick="location.href='index.html'" class="ctrl-btn" style="background:#666; width: 80%;">返回目录</button>
-            </footer>
         </aside>
     </div>
 
     <script src="./js/pdf.js"></script>
-    
     <script>
         const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
         pdfjsLib.GlobalWorkerOptions.workerSrc = './js/pdf.worker.js';
 
-        // 全局状态管理
         const state = {
-            pdf: null,
-            config: null,
-            writer: null,
-            audio: new Audio(),
-            isReading: false,
-            currentPageData: null
+            config: null, pdf: null, 
+            audio: null, writer: null, 
+            isAutoPlaying: false
         };
 
-        // 语音参数优化：使用百度标准普通话接口
         const getAudioUrl = (text) => `https://tts.baidu.com/text2audio?tex=${encodeURIComponent(text)}&cuid=baike&lan=zh&ctp=1&pdt=301&vol=9&rate=32&per=4`;
 
-        async function initEngine() {
-            try {
-                const response = await fetch(`./data/lesson${lessonId}.json`);
-                state.config = await response.json();
-                document.getElementById('title-display').innerText = state.config.title;
+        async function init() {
+            const res = await fetch(`./data/lesson${lessonId}.json`);
+            state.config = await res.json();
+            document.getElementById('title-display').innerText = state.config.title;
 
-                state.pdf = await pdfjsLib.getDocument({
-                    url: state.config.pdfPath || './book.pdf',
-                    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.14.305/cmaps/',
-                    cMapPacked: true
-                }).promise;
+            state.pdf = await pdfjsLib.getDocument({
+                url: state.config.pdfPath || './book.pdf',
+                cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.14.305/cmaps/',
+                cMapPacked: true
+            }).promise;
 
-                setupNavigation();
-                renderPage(state.config.pages[0].pdfPageNo);
-            } catch (err) { console.error("初始化失败:", err); }
+            renderNav();
+            renderPage(state.config.pages[0].pdfPageNo);
         }
 
-        function setupNavigation() {
-            const nav = document.getElementById('page-switcher');
-            nav.innerHTML = '';
+        async function renderPage(num) {
+            state.isAutoPlaying = false; stopAudio();
+            const page = await state.pdf.getPage(num);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.getElementById('pdf-canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             
-            // 全文朗读按钮：具备解锁音频权限功能
-            const fullBtn = document.createElement('button');
-            fullBtn.className = "page-btn";
-            fullBtn.style.background = "#f9a825";
-            fullBtn.innerText = "🎵 全文朗读";
-            fullBtn.onclick = () => {
-                // 用户点击瞬间播放并暂停，绕过 Autoplay 限制
-                state.audio.play().then(() => state.audio.pause());
-                startAutoReading();
-            };
-            nav.appendChild(fullBtn);
+            canvas.height = viewport.height; canvas.width = viewport.width;
+            const overlay = document.getElementById('hotspot-overlay');
+            overlay.innerHTML = '';
 
+            const pageData = state.config.pages.find(p => p.pdfPageNo === num);
+            const textContent = await page.getTextContent();
+
+            textContent.items.forEach(item => {
+                const spot = pageData.hotspots.find(s => 
+                    (s.char && item.str.includes(s.char)) || 
+                    (s.search && item.str.includes(s.search))
+                );
+
+                if (spot) {
+                    const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+                    const div = document.createElement('div');
+                    div.className = 'hotspot-item';
+                    div.style.cssText = `position:absolute; cursor:pointer; 
+                        left:${(tx[4]/viewport.width)*100}%; top:${((tx[5]-item.height)/viewport.height)*100}%;
+                        width:${(item.width/viewport.width)*100}%; height:${(item.height/viewport.height)*100}%; z-index:100;`;
+                    
+                    div.onclick = (e) => { e.stopPropagation(); executeSpot(spot, div); };
+                    overlay.appendChild(div);
+                }
+            });
+
+            page.render({ canvasContext: ctx, viewport: viewport }).promise.catch(()=>{});
+        }
+
+        function stopAudio() {
+            if (state.audio) { state.audio.pause(); state.audio.src = ''; state.audio = null; }
+        }
+
+        function executeSpot(spot, el) {
+            stopAudio();
+            document.querySelectorAll('.active-hotspot').forEach(i => i.classList.remove('active-hotspot'));
+            if(el) el.classList.add('active-hotspot');
+
+            const display = document.getElementById('content-display');
+            
+            if (spot.type === 'poem') {
+                // 💡 重点：完整渲染名师赏析、百科、问题
+                display.innerHTML = `
+                    <div class="teaching-card expert-mode">
+                        <section class="card-section">
+                            <h3 class="gold-title">💡 名师赏析</h3>
+                            <p>${spot.expand.note}</p>
+                        </section>
+                        <section class="card-section">
+                            <h3 class="blue-title">🧪 科学百科</h3>
+                            <p>${spot.expand.science || '暂无百科资料'}</p>
+                        </section>
+                        <section class="card-section quiz-box">
+                            <h3 class="green-title">❓ 思考探究</h3>
+                            <p>${spot.expand.quiz || '想一想：诗中描绘了怎样的画面？'}</p>
+                        </section>
+                        ${spot.expand.article ? `<section class="card-section"><h3>📖 背景知识</h3><p>${spot.expand.article}</p></section>` : ''}
+                    </div>`;
+            } else {
+                display.innerHTML = `
+                    <div class="teaching-card word-mode">
+                        <div id="writer-target"></div>
+                        <h2 class="char-title">${spot.char} <small>[${spot.pinyin}]</small></h2>
+                        <div class="highlight-box">
+                            <p><span class="label-red">【组词】</span>${spot.expand.group.join('、')}</p>
+                            <p><span class="label-red">【易错】</span>${spot.expand.error}</p>
+                            <p><span class="label-red">【字理】</span>${spot.expand.zili || '见详解'}</p>
+                        </div>
+                        <button class="ctrl-btn" onclick="state.writer.animateCharacter()">演示笔顺</button>
+                    </div>`;
+                
+                state.writer = HanziWriter.create('writer-target', spot.char, {
+                    width: 150, height: 150, padding: 5, strokeColor: '#d32f2f'
+                });
+                state.writer.animateCharacter();
+            }
+
+            const ttsText = spot.type === 'poem' ? spot.content : `${spot.char}。拼音：${spot.pinyin}。组词：${spot.expand.group[0]}`;
+            state.audio = new Audio(getAudioUrl(ttsText));
+            state.audio.play().catch(()=>{});
+        }
+
+        function renderNav() {
+            const nav = document.getElementById('page-switcher');
             state.config.pages.forEach(p => {
                 const btn = document.createElement('button');
                 btn.className = "page-btn";
@@ -101,130 +164,15 @@
             });
         }
 
-        async function renderPage(pageNum) {
-            state.isReading = false;
-            state.audio.pause();
-            
-            const page = await state.pdf.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 1.5 });
-            const canvas = document.getElementById('pdf-canvas');
-            
-            // 解决 willReadFrequently 警告
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-
-            // 1. 立即加载热区数据，不等待渲染
-            state.currentPageData = state.config.pages.find(p => p.pdfPageNo === pageNum);
-            const overlay = document.getElementById('hotspot-overlay');
-            overlay.innerHTML = '';
-
-            const textContent = await page.getTextContent();
-            textContent.items.forEach(item => {
-                const spot = state.currentPageData.hotspots.find(s => 
-                    (s.char && item.str.includes(s.char)) || 
-                    (s.search && item.str.includes(s.search))
-                );
-
-                if (spot) {
-                    const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
-                    const el = document.createElement('div');
-                    el.className = 'hotspot-item';
-                    el.id = `spot-${spot.id || spot.char}`;
-                    el.style.cssText = `
-                        position: absolute;
-                        left: ${(tx[4] / viewport.width) * 100}%;
-                        top: ${((tx[5] - item.height) / viewport.height) * 100}%;
-                        width: ${(item.width / viewport.width) * 100}%;
-                        height: ${(item.height / viewport.height) * 100}%;
-                        cursor: pointer;
-                        z-index: 100;
-                    `;
-                    el.onclick = (e) => {
-                        e.stopPropagation();
-                        state.isReading = false; // 手动点读打断自动朗读
-                        activateAction(spot, el);
-                    };
-                    overlay.appendChild(el);
-                }
-            });
-
-            // 2. 异步渲染PDF（即便有Knockout报错也不影响热区）
-            page.render({ canvasContext: ctx, viewport: viewport }).promise.catch(e => console.warn("渲染引擎警告:", e));
-        }
-
-        function activateAction(spot, element) {
-            // UI 高亮切换
-            document.querySelectorAll('.active-hotspot').forEach(el => el.classList.remove('active-hotspot'));
-            if (element) element.classList.add('active-hotspot');
-
-            const display = document.getElementById('content-display');
-            
-            if (spot.type === 'poem') {
-                display.innerHTML = `
-                    <div class="teaching-card expert-mode">
-                        <section class="card-section"><h3>💡 名师赏析</h3><p>${spot.expand.note}</p></section>
-                        <section class="card-section" style="border-top: 1px dashed #ccc; margin-top:10px; padding-top:10px;">
-                            <h3>🧪 科学百科</h3><p>${spot.expand.science || spot.expand.article || '暂无资料'}</p>
-                        </section>
-                    </div>`;
-            } else {
-                // 恢复生字学习模块
-                display.innerHTML = `
-                    <div class="teaching-card word-mode">
-                        <div class="hanzi-wrap"><div id="writer-target"></div></div>
-                        <h2 style="font-size:2.5em; color:#d32f2f; margin:10px 0;">${spot.char} <small style="font-size:0.5em; color:#666;">[${spot.pinyin}]</small></h2>
-                        <div class="highlight-box">
-                            <p><strong>【组词】</strong>${(spot.expand.group || []).join('、')}</p>
-                            <p><strong>【易错】</strong>${spot.expand.error || '规范书写'}</p>
-                            <p><strong>【字理】</strong>${spot.expand.zili || '见详解'}</p>
-                        </div>
-                        <button class="ctrl-btn" style="margin-top:10px" onclick="state.writer.animateCharacter()">演示笔顺</button>
-                    </div>`;
-
-                // 立即初始化笔顺动画
-                state.writer = HanziWriter.create('writer-target', spot.char, {
-                    width: 160, height: 160, padding: 5, strokeColor: '#d32f2f',
-                    showOutline: true, delayBetweenStrokes: 300
-                });
-                state.writer.animateCharacter();
-            }
-
-            // 播放同步语音
-            const ttsText = spot.type === 'poem' ? spot.content : `${spot.char}。拼音：${spot.pinyin}。组词：${(spot.expand.group || [])[0] || ''}`;
-            state.audio.src = getAudioUrl(ttsText);
-            state.audio.play().catch(e => console.log("语音播放被拦截，请先点击页面"));
-        }
-
-        async function startAutoReading() {
-            if (state.isReading) { state.isReading = false; state.audio.pause(); return; }
-            state.isReading = true;
-
-            const hotspots = state.currentPageData.hotspots;
-            for (let spot of hotspots) {
-                if (!state.isReading) break;
-
-                const el = document.getElementById(`spot-${spot.id || spot.char}`);
-                activateAction(spot, el);
-
-                await new Promise(resolve => {
-                    state.audio.onended = resolve;
-                    state.audio.onerror = resolve;
-                });
-                await new Promise(r => setTimeout(r, 800)); // 句间停顿
-            }
-            state.isReading = false;
-        }
-
-        initEngine();
+        window.onload = init;
     </script>
-
     <style>
-        /* 补充工业级样式 */
-        .hotspot-item { border-radius: 4px; transition: background 0.2s; }
         .hotspot-item:hover { background: rgba(249, 168, 37, 0.15); }
-        .active-hotspot { background: rgba(249, 168, 37, 0.3) !important; border: 2px solid #f9a825 !important; }
-        .hanzi-wrap { background: #fff; border: 1px solid #eee; display: inline-block; padding: 10px; border-radius: 12px; }
+        .active-hotspot { background: rgba(249, 168, 37, 0.3) !important; border: 1px solid #f9a825; }
+        .card-section { margin-bottom: 20px; border-bottom: 1px dashed #eee; padding-bottom: 10px; }
+        .gold-title { color: #f9a825; } .blue-title { color: #1976d2; } .green-title { color: #2e7d32; }
+        .quiz-box { background: #f1f8e9; padding: 10px; border-radius: 8px; border: none; }
+        #writer-target { background: #fff; border: 1px solid #ddd; border-radius: 8px; margin: 0 auto; }
     </style>
 </body>
 </html>
